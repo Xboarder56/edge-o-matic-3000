@@ -1,12 +1,12 @@
 [submodule "lib/eom-hal"]
 	path = lib/eom-hal
-	url = https://github.com/MausTec/eom-hal-dist
+	url = https://github.com/Xboarder56/eom-hal-dist
 [submodule "lib/ts-code"]
 	path = lib/ts-code
-	url = https://github.com/MausTec/ts-code.git
+	url = https://github.com/Xboarder56/ts-code.git
 [submodule "lib/mt-accessory-common"]
 	path = lib/mt-accessory-common
-	url = https://github.com/MausTec/mt-accessory-common
+	url = https://github.com/Xboarder56/mt-accessory-common
 [submodule "components/u8g2"]
 	path = components/u8g2
 	url = https://github.com/olikraus/u8g2
@@ -15,11 +15,11 @@
 	url = https://github.com/h2non/semver.c
 [submodule "lib/tlibmp"]
 	path = lib/tlibmp
-	url = https://github.com/MauAbata/tlibmp
+	url = https://github.com/Xboarder56/tlibmp
 [submodule "lib/mt-actions"]
 	path = lib/mt-actions
-	url = https://github.com/MausTec/mt-actions
-	branch = eom-api-tooling
+	url = https://github.com/Xboarder56/mt-actions.git
+	branch = main
 [submodule "components/wamr"]
 	path = components/wamr
 	url = https://github.com/bytecodealliance/wasm-micro-runtime.git

@@ -5,21 +5,28 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1" # weekly: detect vanished or broken upstream dependencies early
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.GH_BUILD_TOKEN }}
+
+      - name: Show submodule sources
+        run: |
+          git config -f .gitmodules --get-regexp 'url$'
+          git submodule status
 
       - name: Cache PlatformIO
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/pip
@@ -29,7 +36,7 @@ jobs:
             ${{ runner.os }}-pio-
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -42,14 +49,18 @@ jobs:
         run: pio run -e eom3k
 
       - name: Upload firmware artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: firmware
-          path: .pio/build/eom3k/firmware.bin
+          path: |
+            .pio/build/eom3k/firmware.bin
+            .pio/build/eom3k/bootloader.bin
+            .pio/build/eom3k/partitions.bin
+            .pio/build/eom3k/firmware.elf
           if-no-files-found: error
 
       - name: Upload plugin API artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: plugin-api
           path: |
@@ -62,13 +73,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
-          token: ${{ secrets.GH_BUILD_TOKEN }}
 
       - name: Cache PlatformIO
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/pip
@@ -78,7 +88,7 @@ jobs:
             ${{ runner.os }}-pio-native-
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
