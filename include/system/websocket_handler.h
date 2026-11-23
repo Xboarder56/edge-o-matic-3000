@@ -38,6 +38,10 @@ enum {
 };
 
 esp_err_t websocket_handler(httpd_req_t* req);
+
+// Server lifecycle hooks (called by http_server) so broadcasts are only queued on a running server.
+void websocket_server_started(httpd_handle_t server);
+void websocket_server_stopping(void);
 esp_err_t websocket_open_fd(httpd_handle_t hd, int sockfd);
 void websocket_close_fd(httpd_handle_t hd, int sockfd);
 

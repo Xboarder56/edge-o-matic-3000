@@ -2,13 +2,66 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+#include "lwip/sockets.h"
 #include "util/list.h"
 #include <sys/socket.h>
+#include <unistd.h>
 
 static const char* TAG = "websocket_handler";
 
 static list_t _cmd_list = LIST_DEFAULT();
+
+// Connected clients. Only ever touched on the httpd task (open/close callbacks, request
+// handlers and queued broadcast work), so it needs no locking of its own.
 static list_t _client_list = LIST_DEFAULT();
+
+// Running server, used to queue broadcasts onto the httpd task. Guarded by _server_lock so a
+// broadcast can never be queued on a server that is being stopped.
+static httpd_handle_t _server = NULL;
+static SemaphoreHandle_t _server_lock = NULL;
+
+// Broadcast jobs waiting to run on the httpd task. Readings are coalesced (at most one pending)
+// and the total is capped, so a busy or stalled httpd task cannot accumulate a backlog.
+#define WS_BROADCAST_MAX_PENDING 4
+static uint8_t _pending_jobs = 0;
+static bool _readings_pending = false;
+
+// TCP keepalive: detect peers that vanished without closing (sleeping phone, WiFi drop) in
+// about KEEPIDLE + KEEPINTVL * KEEPCNT seconds, so their slot is freed.
+#define WS_KEEPALIVE_IDLE_S 10
+#define WS_KEEPALIVE_INTERVAL_S 5
+#define WS_KEEPALIVE_COUNT 3
+
+typedef struct {
+    char* payload;
+    size_t len;
+    int broadcast_flags;
+} ws_broadcast_job_t;
+
+static void _lock(void) {
+    if (_server_lock == NULL) _server_lock = xSemaphoreCreateMutex();
+    xSemaphoreTake(_server_lock, portMAX_DELAY);
+}
+
+static void _unlock(void) {
+    xSemaphoreGive(_server_lock);
+}
+
+void websocket_server_started(httpd_handle_t server) {
+    _lock();
+    _server = server;
+    _pending_jobs = 0;
+    _readings_pending = false;
+    _unlock();
+}
+
+void websocket_server_stopping(void) {
+    _lock();
+    _server = NULL;
+    _unlock();
+}
 
 bool _is_websocket(websocket_client_t* client) {
     return httpd_ws_get_fd_info(client->server, client->fd) == HTTPD_WS_CLIENT_WEBSOCKET;
@@ -21,7 +74,7 @@ esp_err_t websocket_send_to_client(websocket_client_t* client, const char* msg) 
 
     httpd_ws_frame_t ws_pkt;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = msg;
+    ws_pkt.payload = (uint8_t*)msg;
     ws_pkt.len = strlen(msg);
     ws_pkt.type = HTTPD_WS_TYPE_TEXT;
     ws_pkt.final = true;
@@ -29,7 +82,81 @@ esp_err_t websocket_send_to_client(websocket_client_t* client, const char* msg) 
     return httpd_ws_send_frame_async(client->server, client->fd, &ws_pkt);
 }
 
+/**
+ * Send one complete text frame without blocking. A client that cannot take the whole frame
+ * right now (send buffer full: stalled or gone) is disconnected rather than waited on, since a
+ * partially written frame would corrupt its stream anyway.
+ */
+static esp_err_t _send_frame_nonblocking(websocket_client_t* client, const char* payload, size_t len) {
+    uint8_t header[4];
+    size_t header_len;
+
+    header[0] = 0x80 | HTTPD_WS_TYPE_TEXT; // FIN + text
+    if (len <= 125) {
+        header[1] = len;
+        header_len = 2;
+    } else if (len <= 0xFFFF) {
+        header[1] = 126;
+        header[2] = (len >> 8) & 0xFF;
+        header[3] = len & 0xFF;
+        header_len = 4;
+    } else {
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    size_t total = header_len + len;
+    char* frame = malloc(total);
+    if (frame == NULL) return ESP_ERR_NO_MEM;
+
+    memcpy(frame, header, header_len);
+    memcpy(frame + header_len, payload, len);
+
+    int sent = httpd_socket_send(client->server, client->fd, frame, total, MSG_DONTWAIT);
+    free(frame);
+
+    if (sent == (int)total) return ESP_OK;
+
+    ESP_LOGW(TAG, "Client fd %d not keeping up (sent %d/%u), disconnecting", client->fd, sent, total);
+    httpd_sess_trigger_close(client->server, client->fd);
+    return ESP_FAIL;
+}
+
+/**
+ * Runs on the httpd task: fan a serialized broadcast out to every subscribed client.
+ */
+static void _broadcast_work(void* arg) {
+    ws_broadcast_job_t* job = (ws_broadcast_job_t*)arg;
+
+    websocket_client_t* client = NULL;
+    list_foreach(_client_list, client) {
+        if ((client->broadcast_flags & job->broadcast_flags) && _is_websocket(client)) {
+            _send_frame_nonblocking(client, job->payload, job->len);
+        }
+    }
+
+    _lock();
+    if (_pending_jobs > 0) _pending_jobs--;
+    if (job->broadcast_flags & WS_BROADCAST_READINGS) _readings_pending = false;
+    _unlock();
+
+    cJSON_free(job->payload);
+    free(job);
+}
+
+/**
+ * Queue a broadcast. Safe to call from any task and never blocks on the network: the actual
+ * sends happen on the httpd task. Readings are dropped while a previous readings broadcast is
+ * still pending (they are superseded by the next one anyway).
+ */
 esp_err_t websocket_broadcast(cJSON* root, int broadcast_flags) {
+    bool readings = (broadcast_flags & WS_BROADCAST_READINGS) != 0;
+
+    _lock();
+    bool skip = _server == NULL || _pending_jobs >= WS_BROADCAST_MAX_PENDING ||
+                (readings && _readings_pending);
+    _unlock();
+    if (skip) return ESP_OK;
+
     char* str = cJSON_PrintUnformatted(root);
     if (str == NULL) {
         return ESP_ERR_NO_MEM;
@@ -39,19 +166,33 @@ esp_err_t websocket_broadcast(cJSON* root, int broadcast_flags) {
         ESP_LOGD(TAG, "Broadcasting: %s", str);
     }
 
-    websocket_client_t* client = NULL;
-    list_foreach(_client_list, client) {
-        if (client->broadcast_flags & broadcast_flags) {
-            esp_err_t err = websocket_send_to_client(client, str);
-            if (err != ESP_OK) {
-                ESP_LOGW(
-                    TAG, "Broadcast send failed for fd %d: %s", client->fd, esp_err_to_name(err)
-                );
-            }
-        }
+    ws_broadcast_job_t* job = malloc(sizeof(ws_broadcast_job_t));
+    if (job == NULL) {
+        cJSON_free(str);
+        return ESP_ERR_NO_MEM;
     }
 
-    cJSON_free(str);
+    job->payload = str;
+    job->len = strlen(str);
+    job->broadcast_flags = broadcast_flags;
+
+    esp_err_t err = ESP_FAIL;
+
+    _lock();
+    if (_server != NULL) {
+        err = httpd_queue_work(_server, _broadcast_work, job);
+        if (err == ESP_OK) {
+            _pending_jobs++;
+            if (readings) _readings_pending = true;
+        }
+    }
+    _unlock();
+
+    if (err != ESP_OK) {
+        cJSON_free(str);
+        free(job);
+    }
+
     return ESP_OK;
 }
 
@@ -145,6 +286,14 @@ esp_err_t websocket_open_fd(httpd_handle_t hd, int sockfd) {
     }
 
     ESP_LOGI(TAG, "websocket_open_fd(hd: %p, sockfd: %d) => IP: %s", hd, sockfd, ipstr);
+
+    int keepalive = 1, idle = WS_KEEPALIVE_IDLE_S, interval = WS_KEEPALIVE_INTERVAL_S,
+        count = WS_KEEPALIVE_COUNT;
+    setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+
     websocket_client_t* client = malloc(sizeof(websocket_client_t));
     if (client == NULL) {
         ESP_LOGE(TAG, "websocket_open_fd: out of memory");
@@ -165,9 +314,14 @@ void websocket_close_fd(httpd_handle_t hd, int sockfd) {
     list_foreach(_client_list, client) {
         if (client->fd == sockfd) {
             list_remove(&_client_list, client);
-            return;
+            break;
         }
     }
+
+    // When a close_fn is installed, esp_http_server does NOT close the socket itself (see
+    // httpd_sess_delete); without this every finished session leaked an lwIP socket until
+    // accept() failed with ENFILE and the server stopped responding.
+    close(sockfd);
 }
 
 esp_err_t websocket_handler(httpd_req_t* req) {

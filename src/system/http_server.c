@@ -41,7 +41,17 @@ static httpd_handle_t start_webserver(void) {
         config.server_port = Config.websocket_port;
     }
 
-    config.max_open_sockets = 3;
+    // Needs CONFIG_LWIP_MAX_SOCKETS >= max_open_sockets + 3 (listen + control sockets); the rest
+    // of the socket pool is left for outbound connections (OTA, HTTP client).
+    config.max_open_sockets = 4;
+
+    // When every slot is taken, drop the least recently used session instead of refusing new
+    // clients. Stale sessions (peer vanished) otherwise lock everyone out.
+    config.lru_purge_enable = true;
+
+    // Bound how long a request handler may block on a slow peer (broadcasts never block).
+    config.send_wait_timeout = 3;
+    config.recv_wait_timeout = 5;
 
     // Open/Close callbacks
     config.open_fn = websocket_open_fd;
@@ -112,11 +122,14 @@ static httpd_handle_t start_webserver(void) {
 
     ESP_LOGI(TAG, "Server started, registering routes.");
     init_routes(server);
+    websocket_server_started(server);
 
     return server;
 }
 
 static void stop_webserver(httpd_handle_t server) {
+    if (server == NULL) return;
+    websocket_server_stopping();
     httpd_stop(server);
 }
 
