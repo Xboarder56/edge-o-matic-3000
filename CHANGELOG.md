@@ -36,6 +36,16 @@ work unchanged: everything new is opt-in through new permissions (`net:http`, `b
   backpressure now drops the superseded broadcast frame cleanly and only disconnects a peer whose
   send buffer stays full continuously for 5 seconds; partial writes finish their remaining bytes
   within 350 ms so WebSocket framing is never corrupted.
+- **WebSocket `setMotor` / `setMode` commands (Allow Orgasm, Stop, manual speed) not updating the
+  OLED screen or Bluetooth/accessory drivers.** `cmd_edging_set_motor` previously called
+  `eom_hal_set_motor_speed` directly without notifying `orgasm_control`, dispatching
+  `EVT_SPEED_CHANGE`, or requesting a UI redraw, and `orgasm_control_set_output_mode` / `configSet`
+  did not trigger a UI redraw when `arousal == 0`. As a result, remote Allow Orgasm, Stop, and
+  manual speed commands never updated Bluetooth driver plugins (such as Lovense) or wired Maus-Bus
+  accessories, left the OLED mode/speed bar frozen until arousal changed, and desynchronized
+  `orgasm_control`'s cached speed across Auto/Manual transitions. Manual motor changes now go
+  through `orgasm_control_set_motor_speed` (clamped to `0..255`), redraw the UI immediately, and
+  dispatch `EVT_SPEED_CHANGE` safely from the main control tick.
 - **Plugins failing to load at boot.** Plugins were loaded after Wi-Fi and Bluetooth started,
   when memory is lowest; parsing a plugin briefly needs several times its file size, so with a
   few plugins installed the device fell to under 100 bytes free and later plugins failed with a

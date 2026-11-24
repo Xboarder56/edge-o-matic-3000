@@ -302,8 +302,7 @@ on_button(eom_hal_button_t button, eom_hal_button_event_t event, void* arg) {
         ui_open_menu(&EDGING_MODE_MENU, NULL);
     } else if (button == EOM_HAL_BUTTON_MID) {
         orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
-        eom_hal_set_motor_speed(0x00);
-        event_manager_dispatch(EVT_SPEED_CHANGE, NULL, 0);
+        orgasm_control_set_motor_speed(0x00);
         // websocket_server_broadcast_speed(0x00);
     } else if (button == EOM_HAL_BUTTON_OK) {
         orgasm_output_mode_t mode = orgasm_control_get_output_mode();
@@ -328,8 +327,7 @@ static ui_render_flag_t on_encoder(int delta, void* arg) {
         int speed = eom_hal_get_motor_speed() + delta;
         uint8_t speed_byte = speed > 0xFF ? 0xFF : (speed < 0x00 ? 0x00 : speed);
 
-        eom_hal_set_motor_speed(speed_byte);
-        event_manager_dispatch(EVT_SPEED_CHANGE, NULL, speed_byte);
+        orgasm_control_set_motor_speed(speed_byte);
         // websocket_server_broadcast_speed(speed_byte);
         return RENDER;
     }

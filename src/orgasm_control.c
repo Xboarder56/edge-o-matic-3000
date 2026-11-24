@@ -70,6 +70,8 @@ static void _set_speed(uint8_t speed) {
     last_speed = speed;
 
     eom_hal_set_motor_speed(speed);
+    arousal_state.update_flag = ocTRUE;
+    ui_redraw_all();
     event_manager_dispatch(EVT_SPEED_CHANGE, NULL, speed);
 }
 
@@ -159,7 +161,10 @@ static void orgasm_control_updateArousal() {
 }
 
 static void orgasm_control_updateMotorSpeed() {
-    if (!output_state.control_motor) return;
+    if (!output_state.control_motor) {
+        _set_speed(eom_hal_get_motor_speed());
+        return;
+    }
 
     if (output_state.output_mode == OC_PLUGIN_CONTROL) {
         // A plugin owns motor_speed directly via set_motor_speed(); the
@@ -415,6 +420,13 @@ oc_bool_t orgasm_control_is_plugin_control(void) {
     return output_state.output_mode == OC_PLUGIN_CONTROL ? ocTRUE : ocFALSE;
 }
 
+void orgasm_control_set_motor_speed(uint8_t speed) {
+    output_state.motor_speed = speed;
+    eom_hal_set_motor_speed(speed);
+    arousal_state.update_flag = ocTRUE;
+    ui_redraw_all();
+}
+
 void orgasm_control_set_motor_speed_direct(uint8_t speed) {
     output_state.motor_speed = speed;
 }
@@ -424,23 +436,26 @@ void orgasm_control_set_output_mode(orgasm_output_mode_t mode) {
     output_state.output_mode = mode;
     output_state.control_motor = mode != OC_MANUAL_CONTROL;
 
-    if (old == OC_MANUAL_CONTROL) {
+    if (old == OC_MANUAL_CONTROL && mode != OC_MANUAL_CONTROL) {
         const vibration_mode_controller_t* controller = orgasm_control_getVibrationMode();
-        output_state.motor_speed = controller->start();
+        output_state.motor_speed =
+            (mode == OC_PLUGIN_CONTROL) ? eom_hal_get_motor_speed() : controller->start();
         output_state.control_state = OC_STATE_RESUMING;
         output_state.resume_start_ms = esp_timer_get_time() / 1000UL;
-    } else if (mode == OC_MANUAL_CONTROL) {
+    } else if (old != OC_MANUAL_CONTROL && mode == OC_MANUAL_CONTROL) {
         const vibration_mode_controller_t* controller = orgasm_control_getVibrationMode();
-        output_state.motor_speed = controller->stop();
+        controller->stop();
+        output_state.motor_speed = eom_hal_get_motor_speed();
     }
 
-    // TODO: This is handled by the UI rendering process, I think??
     eom_hal_set_encoder_rgb(
         (mode + 1) & 0x04 ? 0xFF : 0x00,
         (mode + 1) & 0x02 ? 0xFF : 0x00,
         (mode + 1) & 0x01 ? 0xFF : 0x00
     );
 
+    arousal_state.update_flag = ocTRUE;
+    ui_redraw_all();
     event_manager_dispatch(EVT_MODE_SET, NULL, mode);
 }
 

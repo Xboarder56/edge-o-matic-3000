@@ -40,13 +40,18 @@ static const websocket_command_t cmd_edging_set_mode_s = {
 
 static command_err_t
 cmd_edging_set_motor(cJSON* command, cJSON* response, websocket_client_t* client) {
+    if (!cJSON_IsNumber(command)) return CMD_ARG_ERR;
+
     int speed = command->valueint;
+    if (speed < 0) speed = 0;
+    if (speed > 255) speed = 255;
+
     if (orgasm_control_get_output_mode() != OC_MANUAL_CONTROL) {
         orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
         cJSON_AddStringToObject(response, "mode", orgasm_control_get_output_mode_str());
     }
 
-    eom_hal_set_motor_speed(speed);
+    orgasm_control_set_motor_speed((uint8_t)speed);
     cJSON_AddNumberToObject(response, "speed", speed);
     return CMD_OK;
 }

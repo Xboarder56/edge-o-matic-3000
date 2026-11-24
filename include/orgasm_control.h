@@ -46,6 +46,7 @@ int orgasm_control_get_arousal_threshold(void);
 
 // Set Controls
 void orgasm_control_control_motor(orgasm_output_mode_t control);
+void orgasm_control_set_motor_speed(uint8_t speed);
 
 void orgasm_control_pause_control(void);
 void orgasm_control_resume_control(void);

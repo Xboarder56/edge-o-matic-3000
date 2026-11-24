@@ -29,7 +29,7 @@ eom_tscode_handler(tscode_command_t* cmd, char* response, size_t resp_len) {
             }
 
             orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
-            eom_hal_set_motor_speed(value);
+            orgasm_control_set_motor_speed(value);
         }
         break;
     }
@@ -38,7 +38,7 @@ eom_tscode_handler(tscode_command_t* cmd, char* response, size_t resp_len) {
     case TSCODE_HALT_IMMEDIATE:
     case TSCODE_VIBRATE_OFF: {
         orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
-        eom_hal_set_motor_speed(0);
+        orgasm_control_set_motor_speed(0);
         break;
     }
 
