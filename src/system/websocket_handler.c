@@ -2,10 +2,13 @@
 
 #include "cJSON.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "lwip/sockets.h"
 #include "util/list.h"
+#include <errno.h>
+#include <sys/select.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -33,6 +36,15 @@ static bool _readings_pending = false;
 #define WS_KEEPALIVE_IDLE_S 10
 #define WS_KEEPALIVE_INTERVAL_S 5
 #define WS_KEEPALIVE_COUNT 3
+
+// How long a client's send buffer may stay continuously full (EAGAIN) before we treat the
+// peer as stalled and close its session. Must outlast normal 2.4 GHz Wi-Fi retransmissions
+// (~1.5 s RTO) and BLE scan coexistence pauses without blocking the httpd task.
+#define WS_CLIENT_STALL_TIMEOUT_MS 5000
+
+// Maximum time to wait to finish the tail of a partially written WebSocket frame (0 < sent <
+// total) so framing is preserved across brief buffer backpressure while keeping httpd bounded.
+#define WS_PARTIAL_SEND_TIMEOUT_MS 350
 
 typedef struct {
     char* payload;
@@ -83,9 +95,16 @@ esp_err_t websocket_send_to_client(websocket_client_t* client, const char* msg) 
 }
 
 /**
- * Send one complete text frame without blocking. A client that cannot take the whole frame
- * right now (send buffer full: stalled or gone) is disconnected rather than waited on, since a
- * partially written frame would corrupt its stream anyway.
+ * Send one complete text frame without blocking the httpd task on a dead reader.
+ *
+ * - If the whole frame fits at once, clear any stall timer and return.
+ * - If the send buffer is temporarily full (0 bytes written / EAGAIN), drop this broadcast
+ *   frame cleanly: framing is still intact, and Wi-Fi/BLE coexistence or a single TCP
+ *   retransmit (~1.5 s) will drain shortly. Only disconnect if the buffer stays full
+ *   continuously for WS_CLIENT_STALL_TIMEOUT_MS.
+ * - If lwIP accepted part of the frame (0 < sent < total), finish writing the remaining
+ *   bytes within WS_PARTIAL_SEND_TIMEOUT_MS so the WebSocket stream is never left half-framed;
+ *   disconnect only if the peer still cannot take those remaining bytes.
  */
 static esp_err_t _send_frame_nonblocking(websocket_client_t* client, const char* payload, size_t len) {
     uint8_t header[4];
@@ -112,11 +131,80 @@ static esp_err_t _send_frame_nonblocking(websocket_client_t* client, const char*
     memcpy(frame + header_len, payload, len);
 
     int sent = httpd_socket_send(client->server, client->fd, frame, total, MSG_DONTWAIT);
+
+    if (sent == (int)total) {
+        free(frame);
+        client->stall_since_ms = 0;
+        return ESP_OK;
+    }
+
+    if (sent == HTTPD_SOCK_ERR_TIMEOUT || sent == 0) {
+        free(frame);
+        int64_t now_ms = esp_timer_get_time() / 1000;
+        if (client->stall_since_ms == 0) {
+            client->stall_since_ms = now_ms;
+        }
+        if (now_ms - client->stall_since_ms < WS_CLIENT_STALL_TIMEOUT_MS) {
+            return ESP_OK;
+        }
+        ESP_LOGW(
+            TAG,
+            "Client fd %d stalled for %lld ms, disconnecting",
+            client->fd,
+            (long long)(now_ms - client->stall_since_ms)
+        );
+        httpd_sess_trigger_close(client->server, client->fd);
+        return ESP_FAIL;
+    }
+
+    if (sent > 0) {
+        size_t offset = (size_t)sent;
+        int64_t deadline_us = esp_timer_get_time() + (WS_PARTIAL_SEND_TIMEOUT_MS * 1000LL);
+        while (offset < total) {
+            int64_t rem_us = deadline_us - esp_timer_get_time();
+            if (rem_us <= 0) break;
+
+            fd_set wfds;
+            FD_ZERO(&wfds);
+            FD_SET(client->fd, &wfds);
+            struct timeval tv = {
+                .tv_sec = (time_t)(rem_us / 1000000LL),
+                .tv_usec = (suseconds_t)(rem_us % 1000000LL),
+            };
+            int ready = select(client->fd + 1, NULL, &wfds, NULL, &tv);
+            if (ready < 0) {
+                if (errno == EINTR) continue;
+                break;
+            }
+            if (ready == 0) break;
+
+            int n = httpd_socket_send(
+                client->server, client->fd, frame + offset, total - offset, MSG_DONTWAIT
+            );
+            if (n > 0) {
+                offset += (size_t)n;
+            } else if (n != HTTPD_SOCK_ERR_TIMEOUT) {
+                break;
+            }
+        }
+        free(frame);
+        if (offset == total) {
+            client->stall_since_ms = 0;
+            return ESP_OK;
+        }
+        ESP_LOGW(
+            TAG,
+            "Client fd %d not keeping up (partial send %u/%u), disconnecting",
+            client->fd,
+            (unsigned)offset,
+            (unsigned)total
+        );
+        httpd_sess_trigger_close(client->server, client->fd);
+        return ESP_FAIL;
+    }
+
     free(frame);
-
-    if (sent == (int)total) return ESP_OK;
-
-    ESP_LOGW(TAG, "Client fd %d not keeping up (sent %d/%u), disconnecting", client->fd, sent, total);
+    ESP_LOGW(TAG, "Client fd %d send failed (%d), disconnecting", client->fd, sent);
     httpd_sess_trigger_close(client->server, client->fd);
     return ESP_FAIL;
 }
@@ -288,11 +376,12 @@ esp_err_t websocket_open_fd(httpd_handle_t hd, int sockfd) {
     ESP_LOGI(TAG, "websocket_open_fd(hd: %p, sockfd: %d) => IP: %s", hd, sockfd, ipstr);
 
     int keepalive = 1, idle = WS_KEEPALIVE_IDLE_S, interval = WS_KEEPALIVE_INTERVAL_S,
-        count = WS_KEEPALIVE_COUNT;
+        count = WS_KEEPALIVE_COUNT, nodelay = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &keepalive, sizeof(keepalive));
     setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
     setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &interval, sizeof(interval));
     setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof(count));
+    setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
 
     websocket_client_t* client = malloc(sizeof(websocket_client_t));
     if (client == NULL) {
@@ -302,6 +391,7 @@ esp_err_t websocket_open_fd(httpd_handle_t hd, int sockfd) {
     client->fd = sockfd;
     client->server = hd;
     client->broadcast_flags = 0;
+    client->stall_since_ms = 0;
     list_add(&_client_list, client);
     // Let ESP-IDF handle cleanup of client context on socket close:
     httpd_sess_set_ctx(hd, sockfd, client, free);

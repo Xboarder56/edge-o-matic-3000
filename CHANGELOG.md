@@ -7,7 +7,8 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
 **Plugin HTTP and Bluetooth release.** Plugins can now make HTTP and HTTPS requests (for example
 to release an OpenSmartTimer), read characteristics, subscribe to notifications and set up
 encrypted links on Bluetooth devices, and use byte and crypto helpers (SHA-256, HMAC-SHA256,
-random bytes, hex). Plugins also load much more reliably at boot.
+random bytes, hex). Plugins also load much more reliably at boot, and long-lived WebSocket
+subscribers survive Wi-Fi/Bluetooth coexistence backpressure without dropping.
 
 Includes the 2.1.0-rc.2 network stability fix and the 2.1.0-rc.3 API fixes. Existing plugins
 work unchanged: everything new is opt-in through new permissions (`net:http`, `ble:read`,
@@ -27,6 +28,14 @@ work unchanged: everything new is opt-in through new permissions (`net:http`, `b
 
 ### Bugs Fixed
 
+- **Long-lived WebSocket clients (such as Magical Wardrobe) getting disconnected every few minutes
+  (`code=1006`).** `_send_frame_nonblocking` previously closed a client session immediately on any
+  non-blocking `EAGAIN` or partial write. With a 2,896-byte default TCP send buffer, a single
+  2.4 GHz Wi-Fi retransmission (~1.5 s RTO) or Bluetooth scan coexistence window filled the send
+  buffer with ~12 readings frames and kicked healthy subscribers off. Transient `EAGAIN`
+  backpressure now drops the superseded broadcast frame cleanly and only disconnects a peer whose
+  send buffer stays full continuously for 5 seconds; partial writes finish their remaining bytes
+  within 350 ms so WebSocket framing is never corrupted.
 - **Plugins failing to load at boot.** Plugins were loaded after Wi-Fi and Bluetooth started,
   when memory is lowest; parsing a plugin briefly needs several times its file size, so with a
   few plugins installed the device fell to under 100 bytes free and later plugins failed with a
@@ -39,6 +48,12 @@ work unchanged: everything new is opt-in through new permissions (`net:http`, `b
 
 ### Technical Stuff
 
+- `CONFIG_LWIP_TCP_SND_BUF_DEFAULT` and `CONFIG_LWIP_TCP_WND_DEFAULT` raised from `2896` (2 MSS) to
+  ESP-IDF's standard `5760` (4 MSS); lwIP allocates send pbufs dynamically only while data is
+  unacknowledged in flight, so static/idle RAM is unchanged. `websocket_open_fd` enables
+  `TCP_NODELAY` on WebSocket client sockets, and `_send_frame_nonblocking` tracks
+  `client->stall_since_ms` (`WS_CLIENT_STALL_TIMEOUT_MS = 5000`) and completes partial frame tails
+  via `select()` (`WS_PARTIAL_SEND_TIMEOUT_MS = 350`).
 - New `src/actions/http.c`, `src/actions/bytes.c`; Bluetooth extensions in `src/actions/ble.c`
   and `src/drivers/plugin_driver.c`. NimBLE callbacks only queue results; plugins get them on the
   plugin task like every other driver event.
