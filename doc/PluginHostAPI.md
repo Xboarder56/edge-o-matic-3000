@@ -50,14 +50,17 @@ Measured on an EOM3K:
 | Request | Peak heap |
 | --- | --- |
 | Plain HTTP | ~15 KB |
-| HTTPS to a LAN device (ECDSA certificate) | ~28 KB |
-| HTTPS to an internet host (GitHub Pages, verified) | ~39 KB |
+| HTTPS to an internet host (GitHub Pages, verified) | more than 42 KB |
 
-The device typically has 30-45 KB free, depending on the loaded plugins (each costs roughly 2-3
-times its `plugin.json` size while loaded). A request is refused with `-3` unless at least 12 KB
-(HTTP) or 44 KB plus a 20 KB contiguous block (HTTPS) is free. In practice, **HTTPS works with one
-or two small plugins loaded; prefer plain HTTP for devices on your own network.** HTTPS requests
-also wait while a Bluetooth device is being connected.
+The device has roughly 30-57 KB free, depending on the loaded plugins (each costs roughly 2-3
+times its `plugin.json` size while loaded; the Lovense driver alone leaves ~57 KB). A request is
+refused with `-3` unless at least 12 KB (HTTP) or 52 KB plus a 20 KB contiguous block (HTTPS) is
+free. In practice, **HTTPS works only with one small plugin loaded; use plain HTTP for devices on
+your own network.** HTTPS requests also wait while a Bluetooth device is being connected.
+
+TLS uses mbedTLS's fixed buffers. Dynamic buffers (`CONFIG_MBEDTLS_DYNAMIC_BUFFER`) lower the
+handshake peak, but they made the online firmware update fail partway through the download, so
+they stay off.
 
 ### Example: release an OpenSmartTimer
 

@@ -45,14 +45,14 @@ work unchanged: everything new is opt-in through new permissions (`net:http`, `b
 - HTTP requests run on a short-lived worker task at the lowest priority, so a TLS handshake never
   delays the main loop or Bluetooth drivers. Plain HTTP never follows redirects (one to HTTPS
   could exceed the memory that was checked); HTTPS follows up to 3.
-- Memory, measured on an EOM3K: plain HTTP ~15 KB, HTTPS to a LAN device ~28 KB, HTTPS to an
-  internet host (GitHub Pages) ~39 KB. Requests are refused unless 12 KB (HTTP) or 44 KB plus a
-  20 KB block (HTTPS) is free, so **HTTPS only runs with one or two small plugins loaded**; plain
-  HTTP is the practical choice for devices on your network. HTTPS also waits while a Bluetooth
-  device is connecting.
-- `CONFIG_MBEDTLS_DYNAMIC_BUFFER` (with freeing of the peer certificate and handshake data) is now
-  enabled. Without it an HTTPS handshake to GitHub exhausted the heap; this also lowers the memory
-  used by the online update check.
+- Memory, measured on an EOM3K: plain HTTP ~15 KB, HTTPS to an internet host (GitHub Pages) more
+  than 42 KB. Requests are refused unless 12 KB (HTTP) or 52 KB plus a 20 KB block (HTTPS) is
+  free, so **HTTPS only runs with one small plugin loaded** (the Lovense driver alone leaves
+  ~57 KB); plain HTTP is the practical choice for devices on your network. HTTPS also waits while
+  a Bluetooth device is connecting.
+- mbedTLS dynamic buffers were tried and left off: they lower the HTTPS handshake peak (~39 KB),
+  but re-allocating the 16 KB receive buffer for every record fragmented the heap and the
+  1.4 MB online update failed partway through. TLS keeps fixed buffers, as in upstream.
 - Bond storage (`ble_store_config_init`) is now enabled. Encryption is only started when a plugin
   calls `ble_secure`, so other devices connect exactly as before.
 - Each plugin load logs the free heap afterward.
@@ -63,7 +63,9 @@ work unchanged: everything new is opt-in through new permissions (`net:http`, `b
 | Test | Result |
 | --- | --- |
 | Plain HTTP: GET, POST with JSON body and header, 404 error body, 6 KB body (capped), busy/invalid arguments | All correct; 30/30 requests in a loop across two hosts |
-| HTTPS: GitHub Pages verified (with redirect), self-signed with verification on / off | 200 and JSON parsed / rejected (`-0x2700`) / 200 |
+| HTTPS: GitHub Pages verified (with redirect), self-signed with verification on / off | 200 and JSON parsed / rejected (`-0x2700`) / 200 (development build with dynamic TLS buffers; with the final fixed buffers HTTPS needs 52 KB free and was not re-run) |
+| Online update over the internet (test feed, then the real `firmware.bin` from GitHub) | Downloaded 1.38 MB, verified, rebooted into the new slot |
+| Update from SD card (`update.bin`) | Works |
 | SHA-256, HMAC-SHA256 (RFC 4231 #1), byte packing | Match reference values |
 | DG-Lab Coyote 3 (zero output): write to `150A`, MTU, subscribe `150B`, read battery, B1 notifications, 30 B0 frames at 100 ms | All working |
 | Lovense Hush with the unchanged driver | Works as before |

@@ -7,8 +7,8 @@
  * response body and its JSON are only available inside that event handler; they are freed as soon
  * as the handler returns.
  *
- * Memory is the constraint: an HTTPS request to an internet host needs up to ~39 KB of heap while
- * it runs (TLS buffers plus the worker's stack); plain HTTP needs ~15 KB. Requests are refused with
+ * Memory is the constraint: an HTTPS request to an internet host needs more than 42 KB of heap
+ * while it runs (TLS buffers plus the worker's stack); plain HTTP needs ~15 KB. Requests are refused with
  * HTTP_REQ_NO_MEMORY instead of being attempted when the heap is too low. Nothing is allocated
  * until a plugin makes a request.
  */
@@ -42,14 +42,16 @@ static const char* TAG = "actions:http";
 #define HTTP_HEADER_VALUE_MAX 128
 #define HTTP_TIMEOUT_MS 10000
 
-// Free heap needed before starting a request. Measured peaks on an EOM3K (2.1.0-rc.4 dev):
+// Free heap needed before starting a request. Measured on an EOM3K:
 //   plain HTTP                         ~15 KB (worker stack, client buffers, socket)
-//   HTTPS to a LAN host (ECDSA)        ~28 KB
-//   HTTPS to GitHub Pages (verified)   ~39 KB (16 KB TLS records need one contiguous block)
-// The thresholds keep ~5 KB spare for everything else at the worst measured peak, so HTTPS is
-// refused (HTTP_REQ_NO_MEMORY) when several plugins are loaded rather than starving the device.
+//   HTTPS to GitHub Pages (verified)   > 42 KB with mbedTLS's fixed buffers (16 KB receive
+//                                      buffer in one block, 4 KB send buffer, handshake)
+// TLS keeps fixed buffers: CONFIG_MBEDTLS_DYNAMIC_BUFFER lowered the handshake peak to ~39 KB but
+// made the 1.4 MB online firmware update fail (the 16 KB buffer is re-allocated per record and
+// the heap fragments). The thresholds leave ~8 KB spare at the worst measured peak, so HTTPS is
+// refused (HTTP_REQ_NO_MEMORY) when more than a small plugin or two is loaded.
 #define HTTP_MIN_FREE_HEAP 12000
-#define HTTPS_MIN_FREE_HEAP 44000
+#define HTTPS_MIN_FREE_HEAP 52000
 #define HTTPS_MIN_LARGEST_BLOCK 20000
 
 // Measured stack use: plain HTTP ~2.2 KB, HTTPS ~4.5 KB.
