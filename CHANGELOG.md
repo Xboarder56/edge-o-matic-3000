@@ -2,6 +2,71 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
+## 2.1.0-rc.3 (2026-11-23): API and update fixes
+
+**API and update fixes.** Standard WebSocket keepalive and close now work, clients can subscribe
+to device events (denials, edges allowed, orgasm detected, mode changes), `streamReadings: false`
+works, and online updates now come from this fork instead of Maus-Tec.
+
+Includes the 2.1.0-rc.2 network stability fix. Existing clients keep working unchanged: the new
+features are opt-in, and existing readings fields are unchanged.
+
+### New Features
+
+- **Device events over the WebSocket API.** Send `{"streamEvents": true}` to receive events as
+  they happen, using the same names as plugin events:
+  `{"event": {"name": "orgasm_denial", "value": 0, "millis": 123456}}`.
+  Events: `orgasm_denial`, `orgasm_permit`, `orgasm_start`, `mode_set` (which also carries
+  `runMode`). Send `{"streamEvents": false}` to stop. Clients that don't subscribe see no change.
+- **Denial count in readings.** Readings now include `denials`, the count shown on the device's
+  edging screen (since boot or the last "Reset Denial Count").
+
+### Bugs Fixed
+
+- **WebSocket pings were never answered.** Clients that send standard keepalive pings (most
+  WebSocket libraries do by default) timed out and disconnected, so integrations had to turn
+  pings off and guess whether the device was still there. The device now replies to pings and
+  completes the close handshake, so closing a connection takes milliseconds instead of the
+  client's close timeout.
+- **`{"streamReadings": false}` did nothing.** Any value turned streaming on. `false` now stops
+  readings (system status updates continue).
+- **Online updates pointed at Maus-Tec's service.** The Update menu sent the device serial number
+  to Maus-Tec, and a future official release could have replaced this fork's firmware. Online
+  updates now use this fork's release feed, and the serial number is no longer sent. Devices
+  still on the old default address are switched automatically; a custom `remote_update_url` is
+  kept. Set `remote_update_url` to `""` in `config.json` to turn online update checks off.
+- **Sending `setMode` with a non-text value could crash the device.** It is now rejected with an
+  error.
+- **Online update checks leaked a connection each time.** The HTTP client is now cleaned up.
+
+### Technical Stuff
+
+- The WebSocket URI handler no longer requests control frames
+  (`handle_ws_control_frames = false`), so esp_http_server replies PONG to PING and CLOSE to
+  CLOSE (RFC 6455).
+- New broadcast flag `WS_BROADCAST_EVENTS`. `api_broadcast_events_init()` registers event-manager
+  handlers that queue events through the rc.2 non-blocking broadcast path. Pending broadcast work
+  is capped at 8 (was 4) so events aren't crowded out by readings.
+- Update feed: `remote_update_url` defaults to `https://xboarder56.github.io/edge-o-matic-3000`
+  (GitHub Pages, published by the release workflow): `version.txt` holds the latest version, and
+  the index is JSON with the release's `firmware.bin` as the `image` asset. Feed requests verify
+  TLS certificates and ignore redirect response bodies. Config file version 5 (migration
+  `migrate_to_5`) replaces only the exact old default.
+- `tools/ws-stress/ws_rc3.py` checks the new API behavior against a live device.
+
+### Verification (on hardware, EOM3K)
+
+| Test | Result |
+| --- | --- |
+| Ping answered with pong | 15 ms |
+| Close handshake | 17 ms (2.1.0-rc.2: client close timeout) |
+| Client keepalive pings every 1 s for 6 s | Connection stays up |
+| `streamReadings` true / false | 43 readings in 3 s / 0 after stop |
+| `streamEvents`: subscribed, unsubscribed, after `false` | Events delivered / none / none |
+| `setMode` with number, null, object | Rejected (`errno 1`), device keeps running |
+| rc.2 regression tests (30 connect cycles, stalled reader, 10-session flood) | All pass, worst round trip 0.37 s |
+| Config migration from rc.2 | Old Maus-Tec URL replaced |
+
 ## 2.1.0-rc.2 (2026-11-23): network stability fix
 
 **Network stability fix release.** This fixes the EOM3000 locking up and becoming unreachable when

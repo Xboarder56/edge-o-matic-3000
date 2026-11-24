@@ -8,6 +8,8 @@ static const char* TAG = "api/edging";
 
 static command_err_t
 cmd_edging_set_mode(cJSON* command, cJSON* response, websocket_client_t* client) {
+    if (!cJSON_IsString(command) || command->valuestring == NULL) return CMD_ARG_ERR;
+
     const char* mode_str = command->valuestring;
     orgasm_output_mode_t mode = orgasm_control_str_to_output_mode(mode_str);
 

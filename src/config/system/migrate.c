@@ -20,7 +20,9 @@
  *
  */
 
+#include "config.h"
 #include "config_defs.h"
+#include <string.h>
 
 migration_result_t migrate_to_1(cJSON* root) {
     // noop
@@ -66,6 +68,21 @@ migration_result_t migrate_to_4(cJSON* root) {
     return MIGRATION_COMPLETE;
 }
 
+/**
+ * Point devices still using the upstream Maus-Tec update service at this fork's update feed.
+ * Only the exact old default is replaced; a custom remote_update_url is left alone.
+ */
+migration_result_t migrate_to_5(cJSON* root) {
+    cJSON* url = cJSON_GetObjectItem(root, "remote_update_url");
+
+    if (cJSON_IsString(url) && url->valuestring != NULL &&
+        !strcmp(url->valuestring, LEGACY_REMOTE_UPDATE_URL)) {
+        cJSON_ReplaceItemInObject(root, "remote_update_url", cJSON_CreateString(REMOTE_UPDATE_URL));
+    }
+
+    return MIGRATION_COMPLETE;
+}
+
 migration_result_t config_system_migrate(cJSON* root) {
     START_MIGRATION();
 
@@ -74,6 +91,7 @@ migration_result_t config_system_migrate(cJSON* root) {
     MIGRATE(2);
     MIGRATE(3);
     MIGRATE(4);
+    MIGRATE(5);
 
     END_MIGRATION();
 }

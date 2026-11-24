@@ -24,7 +24,7 @@ static SemaphoreHandle_t _server_lock = NULL;
 
 // Broadcast jobs waiting to run on the httpd task. Readings are coalesced (at most one pending)
 // and the total is capped, so a busy or stalled httpd task cannot accumulate a backlog.
-#define WS_BROADCAST_MAX_PENDING 4
+#define WS_BROADCAST_MAX_PENDING 8
 static uint8_t _pending_jobs = 0;
 static bool _readings_pending = false;
 

@@ -35,6 +35,10 @@ enum {
 
     // Broadcast system info, including periodic SD and WiFi updates:
     WS_BROADCAST_SYSTEM = (1 << 1),
+
+    // Broadcast device events as they happen (orgasm_denial, orgasm_permit, orgasm_start,
+    // mode_set). Opt-in via {"streamEvents": true}.
+    WS_BROADCAST_EVENTS = (1 << 2),
 };
 
 esp_err_t websocket_handler(httpd_req_t* req);

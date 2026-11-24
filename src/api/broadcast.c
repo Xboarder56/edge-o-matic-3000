@@ -4,7 +4,14 @@
 #include "eom-hal.h"
 #include "orgasm_control.h"
 #include "orgasm_detection.h"
+#include "system/event_manager.h"
 #include "system/websocket_handler.h"
+#include <ctype.h>
+#include <esp_timer.h>
+#include <string.h>
+
+// Denials counted since boot (or since "Reset Denial Count"), as shown on the device screen.
+extern uint16_t edging_stats_page_get_denial_count(void);
 
 void api_broadcast_config(void) {
     cJSON* payload = cJSON_CreateObject();
@@ -24,6 +31,7 @@ void api_broadcast_readings(void) {
     cJSON_AddNumberToObject(root, "pavg", orgasm_control_get_average_pressure());
     cJSON_AddNumberToObject(root, "motor", eom_hal_get_motor_speed());
     cJSON_AddNumberToObject(root, "arousal", orgasm_control_get_arousal());
+    cJSON_AddNumberToObject(root, "denials", edging_stats_page_get_denial_count());
     cJSON_AddNumberToObject(root, "millis", esp_timer_get_time() / 1000);
 
     // Everything around this is deprecated and should be moved into its own broadcast.
@@ -65,4 +73,41 @@ void api_broadcast_network_status(void) {
 
     websocket_broadcast(payload, WS_BROADCAST_SYSTEM);
     cJSON_Delete(payload);
+}
+
+/**
+ * Event names on the wire match the plugin event names: "EVT_ORGASM_DENIAL" -> "orgasm_denial".
+ */
+static void _on_device_event(
+    const char* event, EVENT_HANDLER_ARG_TYPE event_arg_ptr, int event_arg_int,
+    EVENT_HANDLER_ARG_TYPE handler_arg
+) {
+    char name[32];
+    size_t i = 0;
+    const char* src = strncmp(event, "EVT_", 4) ? event : event + 4;
+
+    for (; src[i] != '\0' && i < sizeof(name) - 1; i++) {
+        name[i] = tolower((unsigned char)src[i]);
+    }
+    name[i] = '\0';
+
+    cJSON* payload = cJSON_CreateObject();
+    cJSON* root = cJSON_AddObjectToObject(payload, "event");
+    cJSON_AddStringToObject(root, "name", name);
+    cJSON_AddNumberToObject(root, "value", event_arg_int);
+    cJSON_AddNumberToObject(root, "millis", esp_timer_get_time() / 1000);
+
+    if (!strcmp(event, EVT_MODE_SET)) {
+        cJSON_AddStringToObject(root, "runMode", orgasm_control_get_output_mode_str());
+    }
+
+    websocket_broadcast(payload, WS_BROADCAST_EVENTS);
+    cJSON_Delete(payload);
+}
+
+void api_broadcast_events_init(void) {
+    event_manager_register_handler(EVT_ORGASM_DENIAL, _on_device_event, NULL);
+    event_manager_register_handler(EVT_ORGASM_PERMIT, _on_device_event, NULL);
+    event_manager_register_handler(EVT_ORGASM_START, _on_device_event, NULL);
+    event_manager_register_handler(EVT_MODE_SET, _on_device_event, NULL);
 }

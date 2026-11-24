@@ -27,6 +27,15 @@ struct um_progress_cb_data {
     int* size;
 };
 
+/**
+ * esp_http_client follows redirects but still delivers the redirect response's body through
+ * HTTP_EVENT_ON_DATA / ON_FINISH. Those bodies must not be mistaken for the real response.
+ */
+static bool _is_redirect(esp_http_client_handle_t client) {
+    int status = esp_http_client_get_status_code(client);
+    return status >= 300 && status < 400;
+}
+
 esp_err_t _http_update_event_handler(esp_http_client_event_t* evt) {
     struct um_progress_cb_data* cb = (struct um_progress_cb_data*)evt->user_data;
     static int output_len = 0;
@@ -38,6 +47,8 @@ esp_err_t _http_update_event_handler(esp_http_client_event_t* evt) {
     }
 
     case HTTP_EVENT_ON_DATA: {
+        if (_is_redirect(evt->client)) break;
+
         if (!esp_http_client_is_chunked_response(evt->client)) {
             int content_length = esp_http_client_get_content_length(evt->client);
             if (*(cb->size) != content_length) {
@@ -71,6 +82,8 @@ esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
     switch (evt->event_id) {
     case HTTP_EVENT_ON_DATA:
         ESP_LOGI(TAG, "HTTP_EVENT_ON_DATA, len=%d", evt->data_len);
+        if (_is_redirect(evt->client)) break;
+
         if (!esp_http_client_is_chunked_response(evt->client)) {
             int content_length = esp_http_client_get_content_length(evt->client);
 
@@ -109,6 +122,8 @@ esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
 
     case HTTP_EVENT_ON_FINISH:
         ESP_LOGD(TAG, "HTTP_EVENT_ON_FINISH");
+        if (_is_redirect(evt->client)) break;
+
         if (*(cb->buffer) != NULL) {
             // Response is accumulated in output_buffer. Uncomment the below line to print the
             // accumulated response
@@ -226,10 +241,9 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
     char* url = NULL;
     asiprintf(
         &url,
-        "%s?current_version=%s&device_serial=%s",
+        "%s?current_version=%s",
         Config.remote_update_url,
-        EOM_VERSION,
-        eom_hal_get_device_serial_const()
+        EOM_VERSION
     );
 
     struct um_progress_cb_data callback_data = {
@@ -243,17 +257,19 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
         .url = Config.remote_update_url,
         .event_handler = _http_event_handler,
         .user_data = &callback_data,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&data_config);
 
     err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client); // releases the connection (socket) and client memory
     free(url);
 
-    if (err != ESP_OK) {
+    if (err != ESP_OK || buffer == NULL) {
         ESP_LOGE(TAG, "HTTP GET failed: %s", esp_err_to_name(err));
         free(buffer);
-        return err;
+        return err != ESP_OK ? err : ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Got %d bytes: %s", strlen(buffer), buffer);
@@ -338,17 +354,17 @@ esp_err_t update_manager_check_latest_version(semver_t* version) {
     char* url = NULL;
     asiprintf(
         &url,
-        "%s/%s?current_version=%s&device_serial=%s",
+        "%s/%s?current_version=%s",
         Config.remote_update_url,
         "version.txt",
-        EOM_VERSION,
-        eom_hal_get_device_serial_const()
+        EOM_VERSION
     );
 
     esp_http_client_config_t config = {
         .url = url,
         .user_data = &callback_data,
         .event_handler = _http_event_handler,
+        .crt_bundle_attach = esp_crt_bundle_attach,
     };
 
     ESP_LOGI(TAG, "Checking for OTA updates: %s", config.url);
@@ -356,12 +372,13 @@ esp_err_t update_manager_check_latest_version(semver_t* version) {
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
     esp_err_t err = esp_http_client_perform(client);
+    esp_http_client_cleanup(client); // releases the connection (socket) and client memory
     free(url);
 
-    if (err != ESP_OK) {
+    if (err != ESP_OK || buffer == NULL) {
         ESP_LOGE(TAG, "HTTP GET failed: %s", esp_err_to_name(err));
         free(buffer);
-        return err;
+        return err != ESP_OK ? err : ESP_FAIL;
     }
 
     ESP_LOGI(TAG, "Got %d bytes", size);
@@ -376,6 +393,7 @@ esp_err_t update_manager_check_latest_version(semver_t* version) {
     }
 
     semver_render(version, version_str);
+    free(buffer);
 
     ESP_LOGI(TAG, "Found version: %s", version_str);
     return ESP_OK;
@@ -387,6 +405,11 @@ um_update_status_t update_manager_get_status(void) {
 
 um_update_status_t update_manager_check_online_updates() {
     semver_t v_remote = {};
+
+    if (Config.remote_update_url == NULL || Config.remote_update_url[0] == '\0') {
+        ESP_LOGI(TAG, "Online update checks disabled (remote_update_url is empty).");
+        return UM_UPDATE_NOT_AVAILABLE;
+    }
 
     if (update_manager_check_latest_version(&v_remote) != ESP_OK) {
         ESP_LOGE(TAG, "Failed to check for remote updates.");

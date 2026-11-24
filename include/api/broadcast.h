@@ -10,6 +10,12 @@ void api_broadcast_readings(void);
 void api_broadcast_storage_status(void);
 void api_broadcast_network_status(void);
 
+/**
+ * Forward device events (orgasm_denial, orgasm_permit, orgasm_start, mode_set) to clients that
+ * subscribed with {"streamEvents": true}.
+ */
+void api_broadcast_events_init(void);
+
 #ifdef __cplusplus
 }
 #endif

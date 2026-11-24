@@ -21,7 +21,10 @@ static const httpd_uri_t routes[] = { {
     .handler = &websocket_handler,
     .user_ctx = NULL,
     .is_websocket = true,
-    .handle_ws_control_frames = true,
+    // Let esp_http_server answer PING with PONG and CLOSE with CLOSE (RFC 6455). The handler
+    // used to receive these frames and only log them, so clients that send keepalive pings
+    // timed out and every close stalled until the client gave up.
+    .handle_ws_control_frames = false,
 } };
 
 static void init_routes(httpd_handle_t server) {

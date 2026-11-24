@@ -24,7 +24,13 @@ static const char* CONFIG_FILENAME = "/config.json";
 #define I18N_USE_CJSON_DICT 1
 
 // System Defaults
-static const char* REMOTE_UPDATE_URL =
+// Online update feed: <url>/version.txt (latest version) and <url> (JSON with an "image" asset).
+// Published by this fork's release workflow; set "remote_update_url" in config.json to use
+// another feed, or to "" to disable online update checks.
+static const char* REMOTE_UPDATE_URL = "https://xboarder56.github.io/edge-o-matic-3000";
+
+// Previous (upstream Maus-Tec) default, rewritten to REMOTE_UPDATE_URL by config migration 5.
+static const char* LEGACY_REMOTE_UPDATE_URL =
     "http://us-central1-maustec-io.cloudfunctions.net/gh-release-embedded-bridge";
 
 // Vibration Modes
@@ -59,7 +65,7 @@ typedef enum orgasm_detect_mode orgasm_detect_mode_t;
 
 // Increment this if you need to trigger a migration on the system config file.
 // Your migration should be defined in config_migrations.c
-#define SYSTEM_CONFIG_FILE_VERSION 4
+#define SYSTEM_CONFIG_FILE_VERSION 5
 
 struct config {
     // Private Things, do not erase!

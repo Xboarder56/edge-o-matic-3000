@@ -10,11 +10,14 @@ void api_register_config(void);
 void api_register_system(void);
 void api_register_edging(void);
 
+void api_broadcast_events_init(void);
+
 static inline void api_register_all(void) {
     api_register_fsutils();
     api_register_config();
     api_register_system();
     api_register_edging();
+    api_broadcast_events_init();
 }
 
 #ifdef __cplusplus

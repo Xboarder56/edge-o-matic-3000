@@ -35,6 +35,10 @@ void edging_stats_page_reset_denial_count(void) {
     state.denial_count = 0;
 }
 
+uint16_t edging_stats_page_get_denial_count(void) {
+    return state.denial_count;
+}
+
 static void on_open(void* arg) {
     // ui_toast_multiline(
     //     "Richter: Die monster. You don't belong in this world!\n\n"
