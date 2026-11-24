@@ -1625,3 +1625,10 @@ CONFIG_SUPPRESS_SELECT_DEBUG_OUTPUT=y
 CONFIG_SUPPORT_TERMIOS=y
 CONFIG_SEMIHOSTFS_MAX_MOUNT_POINTS=1
 # End of deprecated options
+
+# TLS memory: allocate record buffers at the size actually needed and free the peer certificate
+# and handshake data once the handshake is done. Without this, one HTTPS handshake (plugin
+# http_request, online update check) needs ~40 KB and exhausted the heap on the device.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_PEER_CERT=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y

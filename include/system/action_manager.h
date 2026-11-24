@@ -18,6 +18,14 @@ mta_plugin_t* action_manager_get_plugin(size_t index);
 mta_plugin_t* action_manager_find_plugin(const char* name);
 
 /**
+ * @brief Invoke one event on one loaded feature plugin, with that plugin's own scope.
+ *
+ * @return -2 if the plugin is not loaded (or is a ble_driver plugin, whose events go to driver
+ * instances), otherwise the mt-actions result (-1 when the plugin has no handler for the event).
+ */
+int action_manager_invoke_plugin_event(mta_plugin_t* plugin, const char* event, int arg);
+
+/**
  * @brief Save plugin config to disk
  *
  * Serializes plugin config and writes to /plugincfg/<name>.json

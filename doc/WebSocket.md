@@ -135,6 +135,26 @@ Sets vibration speed. Will enter manual mode.
 ```
  
 
+### `streamReadings`
+Subscribes to (`true`) or stops (`false`) the `readings` broadcast. Subscribing also subscribes
+to system status (Wi-Fi, SD). Before 2.1.0-rc.3, any value subscribed.
+
+**Example:**
+```json
+"streamReadings": false
+```
+ 
+
+### `streamEvents`
+Since 2.1.0-rc.3. Subscribes to (`true`) or stops (`false`) device events, delivered as `event`
+messages as they happen. Clients that do not subscribe receive nothing new.
+
+**Example:**
+```json
+"streamEvents": true
+```
+ 
+
 ## Server Responses
 Your application should be prepared to handle these messages streamed from the server. The actual data may change as 
 this is a printed document and not live documentation. See GitHub for more up-to-date details.
@@ -229,6 +249,7 @@ and is used for providing real-time updates to your application.
 |pavg|Numeric|Rolling pressure average|
 |motor|Numeric|Current vibrator speed|
 |arousal|Numeric|Current arousal value|
+|denials|Numeric|Denials since boot or "Reset Denial Count", as on the device screen (2.1.0-rc.3+)|
 |millis|Numeric|Millisecond timestamp|
 
 **Example:**
@@ -242,3 +263,27 @@ and is used for providing real-time updates to your application.
 }
 ```
 
+
+ 
+
+### `event`
+Since 2.1.0-rc.3, sent to clients subscribed with `streamEvents`. Event names match the plugin
+event names.
+
+**Parameters:**
+
+|Parameter|Type|Description|
+|---|---|---|
+|name|String|`orgasm_denial`, `orgasm_permit`, `orgasm_start` or `mode_set`|
+|value|Numeric|Event value (for `mode_set`, the new mode number)|
+|millis|Numeric|Millisecond timestamp|
+|runMode|String|`mode_set` only: the new run mode (e.g. `MANUAL_CONTROL`)|
+
+**Example:**
+```json
+"event": {
+    "name": "orgasm_denial",
+    "value": 0,
+    "millis": 198452
+}
+```

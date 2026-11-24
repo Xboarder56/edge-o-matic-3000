@@ -2,6 +2,74 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
+## 2.1.0-rc.4 (2026-11-24): plugin HTTP and Bluetooth
+
+**Plugin HTTP and Bluetooth release.** Plugins can now make HTTP and HTTPS requests (for example
+to release an OpenSmartTimer), read characteristics, subscribe to notifications and set up
+encrypted links on Bluetooth devices, and use byte and crypto helpers (SHA-256, HMAC-SHA256,
+random bytes, hex). Plugins also load much more reliably at boot.
+
+Includes the 2.1.0-rc.2 network stability fix and the 2.1.0-rc.3 API fixes. Existing plugins
+work unchanged: everything new is opt-in through new permissions (`net:http`, `ble:read`,
+`ble:notify`, `ble:secure`). Plugin author reference: `doc/PluginHostAPI.md`.
+
+### New Features
+
+- **HTTP and HTTPS requests from plugins** (`net:http`). `http_request` returns at once and the
+  result arrives as the `http_response` event; JSON responses can be read by path
+  (`http_json_string`, `http_json_int`). Custom headers, JSON or form bodies, and an option to skip
+  TLS certificate checks for self-signed devices. One request at a time.
+- **More Bluetooth for driver plugins.** Write to a chosen characteristic, read characteristics,
+  subscribe to notifications or indications, encrypt and bond (LE Secure Connections, "Just
+  Works"; bonds are kept across restarts), and negotiate a larger packet size.
+- **Byte and crypto helpers** for building and checking binary frames: SHA-256, HMAC-SHA256,
+  random bytes, hex conversion, and little/big-endian integer packing.
+
+### Bugs Fixed
+
+- **Plugins failing to load at boot.** Plugins were loaded after Wi-Fi and Bluetooth started,
+  when memory is lowest; parsing a plugin briefly needs several times its file size, so with a
+  few plugins installed the device fell to under 100 bytes free and later plugins failed with a
+  "Failed to parse plugin JSON" error. Plugins now load before the network starts (lowest point
+  during boot ~22 KB instead of ~0).
+- **Plugin settings stuck at a limit.** If a plugin's default value lay outside the range it
+  declares, the first change snapped the setting to the limit and it could never get back. For
+  the Lovense driver (`max_level` default 20, declared max 5) the vibration level could not be
+  raised above 5 again. The setting's range now includes the plugin's default and the saved value.
+
+### Technical Stuff
+
+- New `src/actions/http.c`, `src/actions/bytes.c`; Bluetooth extensions in `src/actions/ble.c`
+  and `src/drivers/plugin_driver.c`. NimBLE callbacks only queue results; plugins get them on the
+  plugin task like every other driver event.
+- HTTP requests run on a short-lived worker task at the lowest priority, so a TLS handshake never
+  delays the main loop or Bluetooth drivers. Plain HTTP never follows redirects (one to HTTPS
+  could exceed the memory that was checked); HTTPS follows up to 3.
+- Memory, measured on an EOM3K: plain HTTP ~15 KB, HTTPS to a LAN device ~28 KB, HTTPS to an
+  internet host (GitHub Pages) ~39 KB. Requests are refused unless 12 KB (HTTP) or 44 KB plus a
+  20 KB block (HTTPS) is free, so **HTTPS only runs with one or two small plugins loaded**; plain
+  HTTP is the practical choice for devices on your network. HTTPS also waits while a Bluetooth
+  device is connecting.
+- `CONFIG_MBEDTLS_DYNAMIC_BUFFER` (with freeing of the peer certificate and handshake data) is now
+  enabled. Without it an HTTPS handshake to GitHub exhausted the heap; this also lowers the memory
+  used by the online update check.
+- Bond storage (`ble_store_config_init`) is now enabled. Encryption is only started when a plugin
+  calls `ble_secure`, so other devices connect exactly as before.
+- Each plugin load logs the free heap afterward.
+- `tools/plugin-tests/` holds the test plugins and scripts used below.
+
+### Verification (on hardware, EOM3K)
+
+| Test | Result |
+| --- | --- |
+| Plain HTTP: GET, POST with JSON body and header, 404 error body, 6 KB body (capped), busy/invalid arguments | All correct; 30/30 requests in a loop across two hosts |
+| HTTPS: GitHub Pages verified (with redirect), self-signed with verification on / off | 200 and JSON parsed / rejected (`-0x2700`) / 200 |
+| SHA-256, HMAC-SHA256 (RFC 4231 #1), byte packing | Match reference values |
+| DG-Lab Coyote 3 (zero output): write to `150A`, MTU, subscribe `150B`, read battery, B1 notifications, 30 B0 frames at 100 ms | All working |
+| Lovense Hush with the unchanged driver | Works as before |
+| rc.2/rc.3 network tests (API, 30 connect cycles, stalled reader, 10-session flood) | All pass |
+| Boot with 4 plugins (Lovense, smoke test, two test plugins): lowest free heap | ~22 KB (76 bytes when loaded after the network, as before) |
+
 ## 2.1.0-rc.3 (2026-11-23): API and update fixes
 
 **API and update fixes.** Standard WebSocket keepalive and close now work, clients can subscribe

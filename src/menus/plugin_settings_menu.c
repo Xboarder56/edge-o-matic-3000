@@ -36,6 +36,7 @@ typedef struct {
     int max;
     bool has_min;
     bool has_max;
+    int default_int; // schema default (int fields)
 } config_field_context_t;
 
 /**
@@ -127,8 +128,28 @@ on_config_field_select(const ui_menu_t* m, const ui_menu_item_t* item, UI_MENU_A
 
         _plugin_config_input.numeric.unit = "";
         _plugin_config_input.numeric.value = &_plugin_config_value.int_val;
-        _plugin_config_input.numeric.min = ctx->has_min ? ctx->min : INT_MIN;
-        _plugin_config_input.numeric.max = ctx->has_max ? ctx->max : INT_MAX;
+        int lo = ctx->has_min ? ctx->min : INT_MIN;
+        int hi = ctx->has_max ? ctx->max : INT_MAX;
+        int cur = current_value.value.int_value;
+
+        // A plugin whose default (or saved value) lies outside its own declared range would
+        // otherwise trap the setting: the first turn snaps it to the bound and the default can
+        // never be reached again (lovense-driver: max_level default 20, max 5). Widen the range
+        // to include both.
+        if (ctx->default_int < lo) lo = ctx->default_int;
+        if (ctx->default_int > hi) hi = ctx->default_int;
+        if (cur < lo) lo = cur;
+        if (cur > hi) hi = cur;
+
+        if (lo != (ctx->has_min ? ctx->min : INT_MIN) || hi != (ctx->has_max ? ctx->max : INT_MAX)) {
+            ESP_LOGW(
+                TAG, "Field '%s': declared range [%d, %d] excludes default/current; using [%d, %d]",
+                ctx->field_name, ctx->min, ctx->max, lo, hi
+            );
+        }
+
+        _plugin_config_input.numeric.min = lo;
+        _plugin_config_input.numeric.max = hi;
         _plugin_config_input.numeric.step = 1;
         _plugin_config_input.numeric.on_save = on_config_save;
         _plugin_config_input.numeric.chart_getter = NULL;
@@ -176,6 +197,9 @@ static void populate_config_field(const mta_config_field_info_t* field_info, voi
     field_ctx->max = field_info->max;
     field_ctx->has_min = field_info->has_min;
     field_ctx->has_max = field_info->has_max;
+    field_ctx->default_int = field_info->default_value.type == MTA_CONFIG_TYPE_INT
+                                 ? field_info->default_value.value.int_value
+                                 : 0;
 
     // Add to menu
     ui_menu_item_t* item = ui_menu_add_item(ctx->menu, label, on_config_field_select, field_ctx);

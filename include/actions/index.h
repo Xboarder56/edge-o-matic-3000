@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include "actions/arousal.h"
+#include "actions/http.h"
 #include "actions/motor.h"
 #include "actions/ui.h"
 #include "mt_actions.h"
@@ -13,11 +14,14 @@ extern "C" {
 void actions_register_system(void);
 void action_config_init(void);
 void action_ble_init(void);
+void action_bytes_init(void);
 
 static inline void actions_register_all(void) {
     actions_register_system();
     action_config_init();
     action_ble_init();
+    action_http_init();
+    action_bytes_init();
     action_motor_init();
     action_arousal_init();
     action_ui_init();

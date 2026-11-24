@@ -210,6 +210,13 @@ void action_manager_load_plugin(const char* path) {
 
     list_add(&_plugins, (void*)entry);
     ESP_LOGI(TAG, "Plugin '%s' loaded successfully from: %s", plugin_name, path);
+    ESP_LOGI(
+        TAG,
+        "Heap after loading '%s': free %u, lowest since boot %u",
+        plugin_name,
+        esp_get_free_heap_size(),
+        esp_get_minimum_free_heap_size()
+    );
 
 cleanup:
     cJSON_Delete(plugin_json);
@@ -330,6 +337,26 @@ mta_plugin_t* action_manager_find_plugin(const char* name) {
     }
 
     return NULL;
+}
+
+int action_manager_invoke_plugin_event(mta_plugin_t* plugin, const char* event, int arg) {
+    plugin_entry_t* entry = NULL;
+
+    list_foreach(_plugins, entry) {
+        if (entry->plugin != plugin) continue;
+        if (entry->scope == NULL) return -2;
+
+        return mta_event_invoke_with_args_scope(
+            plugin,
+            event,
+            (mta_arg_t[]){ { .type = MTA_ARG_INT, .val.i = arg } },
+            1,
+            entry->scope,
+            NULL
+        );
+    }
+
+    return -2;
 }
 
 bool action_manager_save_plugin_config(mta_plugin_t* plugin, void* user_data) {

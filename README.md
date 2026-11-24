@@ -43,6 +43,8 @@ on a tag in a detached checkout gives e.g. `2.1.0-rc.1+HEAD`; commits after a ta
 
 Plugins go on the SD card as `/plugins/<name>/plugin.json`; see
 [eom-plugins](https://github.com/MausTec/eom-plugins) and [mt-sdk](https://github.com/MausTec/mt-sdk).
+This fork adds plugin functions for HTTP(S) requests, Bluetooth reads/notifications/encryption and
+byte/crypto helpers: see [doc/PluginHostAPI.md](doc/PluginHostAPI.md).
 
 ## Getting Started
 

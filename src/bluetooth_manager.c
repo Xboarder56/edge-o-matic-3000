@@ -19,6 +19,9 @@ static SemaphoreHandle_t _ble_connect_sem;
 
 static int blecent_gap_event(struct ble_gap_event* event, void* arg);
 
+// Not declared in this IDF version's headers (see the NimBLE examples).
+void ble_store_config_init(void);
+
 static void blecent_on_reset(int reason) {
     ESP_LOGE(TAG, "Resetting state; reason=%d", reason);
 }
@@ -56,7 +59,10 @@ void bluetooth_manager_init(void) {
     // rc = peer_init(BLE_MAX_CONNECTRION)
 
     rc = ble_svc_gap_device_name_set(Config.bt_display_name);
-    // ble_store_config_init();
+
+    // Persist bonds in NVS so a plugin that encrypts its link (ble_secure) reconnects to an
+    // already-paired device without pairing again. Devices that never pair are unaffected.
+    ble_store_config_init();
 
     if (rc != 0) {
         ESP_LOGE(TAG, "Setting BT Name failed: %d", rc);
@@ -333,6 +339,7 @@ static int blecent_gap_event(struct ble_gap_event* event, void* arg) {
         rc = ble_gap_conn_find(event->enc_change.conn_handle, &desc);
         assert(rc == 0);
         // print_conn_desc(&desc);
+        plugin_driver_on_enc_change((peer_t*)arg, event->enc_change.status);
 #if CONFIG_EXAMPLE_ENCRYPTION
         /*** Go for service discovery after encryption has been successfully enabled ***/
         rc = peer_disc_all(event->connect.conn_handle, blecent_on_disc_complete, NULL);
@@ -355,8 +362,10 @@ static int blecent_gap_event(struct ble_gap_event* event, void* arg) {
             OS_MBUF_PKTLEN(event->notify_rx.om)
         );
 
-        /* Attribute data is contained in event->notify_rx.om. Use
-         * `os_mbuf_copydata` to copy the data received in notification mbuf */
+        /* Delivered to the driver plugin only if it subscribed (ble_subscribe). */
+        plugin_driver_on_notify(
+            (peer_t*)arg, event->notify_rx.attr_handle, event->notify_rx.om
+        );
         return 0;
 
     case BLE_GAP_EVENT_MTU:

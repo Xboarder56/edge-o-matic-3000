@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "orgasm_control.h"
 #include "polyfill.h"
+#include "actions/http.h"
 #include "system/action_manager.h"
 #include "system/event_manager.h"
 #include "system/http_server.h"
@@ -161,6 +162,9 @@ static void loop_task(void* args) {
     // Feature plugins (ble_driver plugins get "tick" from plugin_driver_tick() instead).
     event_manager_dispatch(EVT_TICK, NULL, millis());
 
+    // Deliver a finished plugin HTTP request made by a feature plugin.
+    action_http_poll(false);
+
     vTaskDelay(1);
     // }
 }
@@ -274,6 +278,15 @@ void app_main() {
     // Show splash screen
     ui_open_page(&SPLASH_PAGE, NULL);
 
+    // Load action plugins from SD card. This happens before Wi-Fi connects and Bluetooth starts:
+    // parsing a plugin briefly needs several times its file size in free heap, and the network
+    // stacks take most of the heap once they are up. Loading touches neither network; BLE
+    // drivers bind later, when a device connects.
+    action_manager_load_all_plugins();
+    if (action_manager_get_plugin_count() > 0) {
+        ui_set_icon(UI_ICON_PLUG, PLUGIN_ICON_ACTIVE);
+    }
+
     // Boot sequence with status indication via LED colors
     // Green = connecting to network
     // Green = prepare Networking
@@ -299,12 +312,6 @@ void app_main() {
         ui_set_icon(UI_ICON_BT, BT_ICON_ACTIVE);
     } else {
         ui_set_icon(UI_ICON_BT, -1);
-    }
-
-    // Load action plugins from SD card
-    action_manager_load_all_plugins();
-    if (action_manager_get_plugin_count() > 0) {
-        ui_set_icon(UI_ICON_PLUG, PLUGIN_ICON_ACTIVE);
     }
 
     // Boot complete - fade LED to off

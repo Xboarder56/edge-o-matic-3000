@@ -1,3 +1,4 @@
+#include "actions/http.h"
 #include "bluetooth_manager.h"
 #include "drivers/plugin_driver.h"
 #include "esp_log.h"
@@ -30,6 +31,13 @@ static void on_pair_start(const ui_menu_t* m, const ui_menu_item_t* item, UI_MEN
     _scanning = false;
     update_scan_item(m);
 
+    // Connecting and discovering services need memory; an HTTPS request can take most of it.
+    // Keep new HTTPS requests from starting and let a running one finish first.
+    action_http_hold_tls(true);
+    if (!action_http_wait_tls_idle(HTTP_REQUEST_MAX_MS)) {
+        ESP_LOGW(TAG, "HTTPS request still running; connecting anyway");
+    }
+
     rc = bluetooth_manager_connect(peer);
 
     if (rc == BLE_HS_EDONE) {
@@ -40,7 +48,10 @@ static void on_pair_start(const ui_menu_t* m, const ui_menu_item_t* item, UI_MEN
         free(peer); // Connect failed, no GAP events — we must free
         ui_toast(_("Failed to connect: %d"), rc);
     } else {
-        if (!plugin_driver_try_claim(peer)) {
+        bool claimed = plugin_driver_try_claim(peer);
+        action_http_hold_tls(false);
+
+        if (!claimed) {
             // Disconnect is async; the GAP disconnect handler will free peer
             bluetooth_manager_disconnect(peer);
             ui_toast("%s", _("Unable to find suitable driver."));
@@ -50,7 +61,10 @@ static void on_pair_start(const ui_menu_t* m, const ui_menu_item_t* item, UI_MEN
         ui_toast("%s", _("Connected!"));
         ui_close_menu();
         // TODO: open bt devices menu
+        return;
     }
+
+    action_http_hold_tls(false);
 }
 
 static void on_scan_result(peer_t* peer, void* arg) {
