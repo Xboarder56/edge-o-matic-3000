@@ -2,6 +2,16 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
+## Unreleased
+
+### Technical Stuff
+
+- CI: radio settings lock (`tools/radio_lock.py`, `tools/radio-config.lock`). The build and
+  release workflows fail if a Wi-Fi/Bluetooth TX power or PHY setting changes, in
+  `sdkconfig.defaults` or in the effective build config, or if any source calls runtime
+  radio power, country or protocol APIs. The values are Maus-Tec's (`CONFIG_ESP_PHY_MAX_TX_POWER=20`,
+  reduced TX power on, PHY calibration as shipped).
+
 ## 2.1.0-rc.5 (2026-11-24): boot fix and remote control
 
 **Boot fix and remote control release.** Fixes devices freezing on the boot screen, gets

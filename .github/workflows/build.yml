@@ -45,8 +45,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install platformio
 
+      - name: Radio settings lock (sdkconfig.defaults, no runtime radio calls)
+        run: python3 tools/radio_lock.py
+
       - name: Build firmware
         run: pio run -e eom3k
+
+      - name: Radio settings lock (effective build config)
+        run: python3 tools/radio_lock.py --built eom3k
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v7
