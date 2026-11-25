@@ -21,6 +21,7 @@
 #include "version.h"
 #include "wasm_runtime.h"
 #include "wifi_manager.h"
+#include <esp_bt.h>
 #include <esp_heap_caps.h>
 #include <esp_https_ota.h>
 #include <esp_ota_ops.h>
@@ -33,6 +34,11 @@ static const char* TAG = "main";
 // Static buffers for FreeRTOS tasks
 #define MAIN_TASK_STACK_SIZE (8 * 1024)
 #define PLUGIN_TASK_STACK_SIZE (4 * 1024)
+
+// Free internal heap required before starting Bluetooth. Measured on 2.1.0-rc.5 with three
+// plugins: the BLE controller + NimBLE host take about 38 KB, and the rest of the system needs
+// roughly 12 KB left over to keep running (web server sessions, plugin requests).
+#define BT_MIN_FREE_HEAP (50 * 1024)
 
 static StackType_t main_task_stack[MAIN_TASK_STACK_SIZE / sizeof(StackType_t)];
 static StaticTask_t main_task_tcb;
@@ -245,15 +251,24 @@ void app_main() {
 
     esp_err_t dxerr = run_boot_diagnostic();
 
+    // The controller runs BLE only (NimBLE), so the memory reserved for Classic Bluetooth is never
+    // used. Give it to the heap before plugins load. Must happen before the controller starts.
+    size_t heap_before_release = esp_get_free_heap_size();
+    esp_err_t bt_rel = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
+    ESP_LOGI(
+        TAG,
+        "Released Classic Bluetooth memory: %s (+%d bytes)",
+        esp_err_to_name(bt_rel),
+        (int)esp_get_free_heap_size() - (int)heap_before_release
+    );
+
     // Initialize HAL and storage first
     eom_hal_init();
     storage_init();
 
-    // Initialize core subsystems
+    // Initialize core subsystems (networking initializes after SD plugin parsing below)
     console_init();
     ui_init();
-    http_server_init();
-    wifi_manager_init();
     plugin_driver_init();
     orgasm_control_init();
     i18n_init();
@@ -288,10 +303,13 @@ void app_main() {
     }
 
     // Boot sequence with status indication via LED colors
-    // Green = connecting to network
     // Green = prepare Networking
     vTaskDelayUntil(&boot_tick, 1000UL / portTICK_PERIOD_MS);
     eom_hal_set_encoder_rgb(0, 255, 0);
+
+    ESP_LOGI(TAG, "Heap before Wi-Fi: free %u", esp_get_free_heap_size());
+    wifi_manager_init();
+    http_server_init();
 
     // Connect to WiFi if enabled
     if (Config.wifi_on) {
@@ -308,8 +326,31 @@ void app_main() {
 
     // Enable Bluetooth if configured
     if (Config.bt_on) {
-        bluetooth_manager_init();
-        ui_set_icon(UI_ICON_BT, BT_ICON_ACTIVE);
+        // NimBLE asserts (and the CPU halts on the boot screen) if it cannot allocate its
+        // controller and buffer pools. When large plugins leave too little heap, skip Bluetooth
+        // so the device still boots, and say why.
+        size_t bt_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        size_t bt_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        ESP_LOGI(TAG, "Heap before Bluetooth: free %u, largest block %u", bt_free, bt_largest);
+
+        if (bt_free < BT_MIN_FREE_HEAP) {
+            ESP_LOGE(
+                TAG,
+                "Not enough heap for Bluetooth (%u < %u). Remove a plugin from the SD card.",
+                bt_free,
+                (unsigned)BT_MIN_FREE_HEAP
+            );
+            ui_toast("%s", _("Bluetooth off:\nlow memory.\nRemove a plugin."));
+            ui_set_icon(UI_ICON_BT, -1);
+        } else {
+            bluetooth_manager_init();
+            ESP_LOGI(
+                TAG,
+                "Heap after Bluetooth: free %u",
+                heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+            );
+            ui_set_icon(UI_ICON_BT, BT_ICON_ACTIVE);
+        }
     } else {
         ui_set_icon(UI_ICON_BT, -1);
     }

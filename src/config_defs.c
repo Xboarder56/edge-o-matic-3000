@@ -7,6 +7,7 @@
 #include "esp_log.h"
 #include "nvs.h"
 #include "polyfill.h"
+#include "system/event_manager.h"
 #include "ui/toast.h"
 #include "util/i18n.h"
 #include <freertos/FreeRTOS.h>
@@ -231,6 +232,7 @@ void config_enqueue_save(long delay) {
             config_save_to_sd(Config._filename, &Config);
             api_broadcast_config();
             save_at_ms_tick = 0;
+            event_manager_dispatch(EVT_CONFIG_CHANGED, NULL, 0);
         }
     }
 }

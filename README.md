@@ -18,8 +18,9 @@ This fork keeps it buildable and self-hosted:
   [tlibmp](https://github.com/Xboarder56/tlibmp).
 * Third-party submodules (u8g2, semver.c, wasm-micro-runtime) still point at their upstreams.
 * CI builds on every push and weekly (to catch a vanished dependency early). Tags `v*`
-  publish a GitHub Release with `firmware.bin`, `bootloader.bin`, `partitions.bin` and
-  `plugin-api.json`.
+  publish a GitHub Release with the app image (`eom3k-firmware-<version>.bin` since 2.1.0-rc.5,
+  `firmware.bin` before), `bootloader.bin`, `partitions.bin` and `plugin-api.json`. The app image
+  is what USB flashing writes at `0x10000` and what the on-device updater downloads.
 
 ### Building
 

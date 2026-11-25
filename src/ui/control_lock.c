@@ -2,6 +2,7 @@
 #include "eom-hal.h"
 #include "esp_log.h"
 #include "polyfill.h"
+#include "system/event_manager.h"
 #include <string.h>
 
 static const char* TAG = "ui:control_lock";
@@ -35,6 +36,7 @@ void control_lock_engage(const char* reason) {
     }
 
     ESP_LOGI(TAG, "Controls locked: %s", _lock.reason);
+    event_manager_dispatch(EVT_LOCK_CHANGED, _lock.reason, 1);
 }
 
 void control_lock_release(void) {
@@ -43,6 +45,7 @@ void control_lock_release(void) {
     _lock.locked = false;
     _lock.reason[0] = '\0';
     ESP_LOGI(TAG, "Controls unlocked");
+    event_manager_dispatch(EVT_LOCK_CHANGED, NULL, 0);
 }
 
 bool control_lock_is_locked(void) {

@@ -155,6 +155,85 @@ messages as they happen. Clients that do not subscribe receive nothing new.
 ```
  
 
+### `getState`
+Since 2.1.0-rc.5. Returns a snapshot of the device state, so a client can resync right after
+connecting without waiting for `readings`. Supports `nonce`.
+
+|Field|Type|Description|
+|---|---|---|
+|runMode|String|`MANUAL_CONTROL`, `AUTOMAITC_CONTROL` (sic) or `PLUGIN_CONTROL`|
+|mode|Numeric|0 manual, 1 automatic, 2 plugin|
+|motor|Numeric|Current motor speed (0-255)|
+|motorMax|Numeric|Configured maximum motor speed|
+|arousal|Numeric|Current arousal value|
+|threshold|Numeric|Arousal threshold (`sensitivity_threshold`)|
+|pressure|Numeric|Last pressure reading|
+|denials|Numeric|Denials since boot or the last reset|
+|pluginControl|Boolean|A plugin holds motor control|
+|lock|Object|`{"locked": bool, "reason": string}`: the button/encoder lock|
+|detection|Object|`{"armed": bool, "state": string}`: orgasm detection|
+|wifiOn, btOn|Boolean|Configured radio state|
+|freeHeap|Numeric|Free internal heap, bytes|
+|fwVersion|String|Firmware version|
+|millis|Numeric|Millisecond timestamp|
+
+**Example:**
+```json
+"getState": {"nonce": 7}
+```
+
+### `resetDenials`
+Since 2.1.0-rc.5. Resets the denial counter, like "Reset Denial Count" on the device. Responds
+with `{"denials": 0}`.
+```json
+"resetDenials": {}
+```
+
+### `setLock`
+Since 2.1.0-rc.5. Locks or unlocks the device buttons and encoder. Holding BACK+OK for 5 seconds
+on the device always unlocks. Responds with the resulting `locked` and `reason`; subscribers to
+`streamEvents` get a `lock_changed` event.
+
+|Argument|Type|Description|
+|---|---|---|
+|locked|Boolean|Required|
+|reason|String|Optional, shown with the lock (default `Remote lock`)|
+
+```json
+"setLock": {"locked": true, "reason": "Session running"}
+```
+
+### `pluginList`
+Since 2.1.0-rc.5. Lists loaded plugins: `{"plugins": [{"name", "displayName", "type",
+"description"}]}`. `type` is `feature` or `ble_driver`.
+```json
+"pluginList": {}
+```
+
+### `pluginEvent`
+Since 2.1.0-rc.5. Runs a feature plugin's `remote_<event>` handler. Plugins choose what can be
+triggered by naming handlers `remote_*` (see `doc/PluginHostAPI.md`).
+
+|Argument|Type|Description|
+|---|---|---|
+|plugin|String|Plugin name, as in `pluginList`|
+|event|String|Handler name without the `remote_` prefix: lowercase letters, digits, `_`, up to 24 characters|
+|value|Numeric|Optional argument passed to the handler (default 0)|
+
+The response has `handled: true` and the handler's `status`, or `errno: 1` with an `error`:
+`plugin not loaded`, `plugin has no handler for this event`, or `driver plugins cannot take
+remote events`.
+```json
+"pluginEvent": {"plugin": "smart-lock", "event": "release", "value": 0}
+```
+
+### `getDevices`
+Since 2.1.0-rc.5. Bluetooth devices currently bound to a driver plugin:
+`{"devices": [{"name": "LVS-Hush", "plugin": "lovense-driver"}]}`.
+```json
+"getDevices": {}
+```
+
 ## Server Responses
 Your application should be prepared to handle these messages streamed from the server. The actual data may change as 
 this is a printed document and not live documentation. See GitHub for more up-to-date details.
@@ -268,22 +347,25 @@ and is used for providing real-time updates to your application.
 
 ### `event`
 Since 2.1.0-rc.3, sent to clients subscribed with `streamEvents`. Event names match the plugin
-event names.
+event names. `edge_start` (since 2.1.0-rc.5) fires when orgasm detection starts tracking a
+sustained clench; it and `orgasm_start` are only sent while orgasm detection is armed.
 
 **Parameters:**
 
 |Parameter|Type|Description|
 |---|---|---|
-|name|String|`orgasm_denial`, `orgasm_permit`, `orgasm_start` or `mode_set`|
-|value|Numeric|Event value (for `mode_set`, the new mode number)|
+|name|String|`edge_start`, `orgasm_denial`, `orgasm_permit`, `orgasm_start`, `mode_set`, `lock_changed`, `config_changed`, `device_connect` or `device_disconnect`|
+|value|Numeric|For `mode_set`, the new mode number (0 manual, 1 automatic, 2 plugin). For `lock_changed` and `device_*`, 1 or 0. For `config_changed`, 0 (send `configList` to read the new settings). For the arousal events, the arousal level when the event fired (before 2.1.0-rc.5 this was always 0).|
 |millis|Numeric|Millisecond timestamp|
 |runMode|String|`mode_set` only: the new run mode (e.g. `MANUAL_CONTROL`)|
+|locked, reason|Boolean, String|`lock_changed` only (2.1.0-rc.5+)|
+|device, plugin|String|`device_connect` / `device_disconnect` only: device name and driver plugin (2.1.0-rc.5+)|
 
 **Example:**
 ```json
 "event": {
     "name": "orgasm_denial",
-    "value": 0,
+    "value": 612,
     "millis": 198452
 }
 ```

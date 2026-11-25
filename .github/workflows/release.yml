@@ -46,10 +46,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           B=.pio/build/eom3k
+          # The app image is named after the release (eom3k-firmware-2.1.0-rc.5.bin). The device
+          # updater finds it through the feed's "image" role and URL, not by file name.
+          image="$B/eom3k-firmware-${GITHUB_REF_NAME#v}.bin"
+          cp "$B/firmware.bin" "$image"
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" $prerelease --generate-notes --repo "$GITHUB_REPOSITORY" \
-            "$B/firmware.bin" "$B/bootloader.bin" "$B/partitions.bin" \
+            "$image" "$B/bootloader.bin" "$B/partitions.bin" \
             "$B/plugin-api.json" "$B/plugin-api.sha256"
 
   update-feed:
@@ -65,11 +69,12 @@ jobs:
       - name: Build feed
         run: |
           version="${GITHUB_REF_NAME#v}"
-          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/firmware.bin"
+          image="eom3k-firmware-${version}.bin"   # must match the asset name in the release job
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}/${image}"
           mkdir -p feed && cd feed
           printf '%s' "$version" > version.txt
-          printf '{"version":"%s","date":"%s","assets":[{"role":"image","name":"firmware.bin","url":"%s"}]}' \
-            "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$url" > index.html
+          printf '{"version":"%s","date":"%s","assets":[{"role":"image","name":"%s","url":"%s"}]}' \
+            "$version" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$image" "$url" > index.html
           touch .nojekyll
           cat version.txt; echo; cat index.html; echo
 

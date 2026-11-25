@@ -1,5 +1,7 @@
 #include "drivers/plugin_driver.h"
 #include "actions/http.h"
+#include "api/broadcast.h"
+#include "freertos/semphr.h"
 #include "mt_actions_internal.h"
 #include "system/action_manager.h"
 #include "system/event_manager.h"
@@ -11,6 +13,62 @@
 #include <string.h>
 
 static const char* TAG = "plugin_driver";
+
+// Bound devices, for the WebSocket getDevices command and device_connect/disconnect events.
+// Kept separately (under a mutex) so other tasks never walk live driver instances.
+#define DEVICE_TABLE_SIZE 4
+#define DEVICE_NAME_MAX 32
+
+typedef struct {
+    const peer_t* peer;
+    char name[DEVICE_NAME_MAX];
+    char plugin[DEVICE_NAME_MAX];
+} bound_device_t;
+
+static bound_device_t _devices[DEVICE_TABLE_SIZE];
+static SemaphoreHandle_t _devices_lock = NULL;
+
+static void _device_bound(const peer_t* peer, const char* plugin) {
+    if (_devices_lock == NULL || xSemaphoreTake(_devices_lock, pdMS_TO_TICKS(100)) != pdTRUE) return;
+    for (int i = 0; i < DEVICE_TABLE_SIZE; i++) {
+        if (_devices[i].peer == NULL) {
+            _devices[i].peer = peer;
+            strlcpy(_devices[i].name, peer->name, DEVICE_NAME_MAX);
+            strlcpy(_devices[i].plugin, plugin ? plugin : "", DEVICE_NAME_MAX);
+            break;
+        }
+    }
+    xSemaphoreGive(_devices_lock);
+    api_broadcast_device_event(peer->name, plugin, true);
+}
+
+static void _device_released(const peer_t* peer) {
+    char plugin[DEVICE_NAME_MAX] = { 0 };
+    if (_devices_lock == NULL || xSemaphoreTake(_devices_lock, pdMS_TO_TICKS(100)) != pdTRUE) return;
+    for (int i = 0; i < DEVICE_TABLE_SIZE; i++) {
+        if (_devices[i].peer == peer) {
+            strlcpy(plugin, _devices[i].plugin, DEVICE_NAME_MAX);
+            memset(&_devices[i], 0, sizeof(_devices[i]));
+            break;
+        }
+    }
+    xSemaphoreGive(_devices_lock);
+    api_broadcast_device_event(peer->name, plugin, false);
+}
+
+void plugin_driver_list_devices(cJSON* array) {
+    if (array == NULL || _devices_lock == NULL) return;
+    if (xSemaphoreTake(_devices_lock, pdMS_TO_TICKS(100)) != pdTRUE) return;
+    for (int i = 0; i < DEVICE_TABLE_SIZE; i++) {
+        if (_devices[i].peer == NULL) continue;
+        cJSON* dev = cJSON_CreateObject();
+        if (dev == NULL) break;
+        cJSON_AddStringToObject(dev, "name", _devices[i].name);
+        cJSON_AddStringToObject(dev, "plugin", _devices[i].plugin);
+        cJSON_AddItemToArray(array, dev);
+    }
+    xSemaphoreGive(_devices_lock);
+}
 
 static int on_tx_complete(
     uint16_t conn_handle, const struct ble_gatt_error* error, struct ble_gatt_attr* attr, void* arg
@@ -193,6 +251,14 @@ static void plugin_driver_event_handler(
         plugin_event = "speed_change";
     } else if (strcmp(event, "EVT_AROUSAL_CHANGE") == 0) {
         plugin_event = "arousal_change";
+    } else if (strcmp(event, "EVT_ORGASM_DENIAL") == 0) {
+        plugin_event = "orgasm_denial";
+    } else if (strcmp(event, "EVT_ORGASM_PERMIT") == 0) {
+        plugin_event = "orgasm_permit";
+    } else if (strcmp(event, "EVT_ORGASM_START") == 0) {
+        plugin_event = "orgasm_start";
+    } else if (strcmp(event, "EVT_EDGE_START") == 0) {
+        plugin_event = "edge_start";
     }
 
     if (!plugin_event) return;
@@ -202,8 +268,13 @@ static void plugin_driver_event_handler(
 
 void plugin_driver_init(void) {
     ESP_LOGI(TAG, "Plugin driver subsystem initialized");
+    if (_devices_lock == NULL) _devices_lock = xSemaphoreCreateMutex();
     event_manager_register_handler(EVT_SPEED_CHANGE, plugin_driver_event_handler, NULL);
     event_manager_register_handler(EVT_AROUSAL_CHANGE, plugin_driver_event_handler, NULL);
+    event_manager_register_handler(EVT_ORGASM_DENIAL, plugin_driver_event_handler, NULL);
+    event_manager_register_handler(EVT_ORGASM_PERMIT, plugin_driver_event_handler, NULL);
+    event_manager_register_handler(EVT_ORGASM_START, plugin_driver_event_handler, NULL);
+    event_manager_register_handler(EVT_EDGE_START, plugin_driver_event_handler, NULL);
 }
 
 bool plugin_driver_try_claim(peer_t* peer) {
@@ -312,6 +383,7 @@ bool plugin_driver_try_claim(peer_t* peer) {
 
         // Fire connect event
         mta_driver_instance_dispatch(instance, "connect", 0, NULL);
+        _device_bound(peer, mta_plugin_get_name(plugin));
 
         ESP_LOGI(
             TAG,
@@ -340,6 +412,7 @@ void plugin_driver_release_peer(peer_t* peer) {
     // remove from global list first, then destroy (fires disconnect, closes I/O, frees scope)
     mta_driver_instance_remove(instance);
     mta_driver_instance_destroy(instance);
+    _device_released(peer);
 }
 
 static void ctx_start_op(ble_conn_ctx_t* ctx);

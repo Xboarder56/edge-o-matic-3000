@@ -35,6 +35,7 @@ static inline void actions_register_all(void) {
      * Fires when the active operating mode changes.
      * @event mode_set
      * @module system
+     * @payload mode:int Active operating mode (0=manual, 1=automatic, 2=plugin)
      */
     mta_register_event("mode_set", NULL);
 
@@ -67,13 +68,16 @@ static inline void actions_register_all(void) {
      * controller permits continued stimulation instead of denying.
      * @event orgasm_permit
      * @module arousal
+     * @payload level:int Arousal level at the threshold breach
      */
     mta_register_event("orgasm_permit", "arousal:read");
 
     /**
-     * Fires when edging starts (near-orgasm detection begins).
+     * Fires when orgasm detection starts tracking a sustained clench (detection goes from idle
+     * to sustained). Only while orgasm detection is armed.
      * @event edge_start
      * @module arousal
+     * @payload level:int Arousal level when tracking began
      */
     mta_register_event("edge_start", "arousal:read");
 
@@ -81,8 +85,26 @@ static inline void actions_register_all(void) {
      * Fires when an orgasm begins.
      * @event orgasm_start
      * @module arousal
+     * @payload level:int Arousal level at detection
      */
     mta_register_event("orgasm_start", "arousal:read");
+
+    /**
+     * Fires when the device controls are locked or unlocked (by a plugin, a WebSocket client
+     * or the BACK+OK escape hatch).
+     * @event lock_changed
+     * @module system
+     * @payload locked:int 1 when locked, 0 when unlocked
+     */
+    mta_register_event("lock_changed", NULL);
+
+    /**
+     * Fires after the device settings are saved (changed on the device, by a WebSocket client
+     * or by a plugin).
+     * @event config_changed
+     * @module system
+     */
+    mta_register_event("config_changed", NULL);
 
     // BLE driver events (emitted directly by plugin_driver.c)
 
@@ -107,6 +129,7 @@ static inline void actions_register_all(void) {
      * Fires on each main loop tick (periodic heartbeat).
      * @event tick
      * @module system
+     * @payload now:int Milliseconds since boot
      */
     mta_register_event("tick", NULL);
 }

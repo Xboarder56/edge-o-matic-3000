@@ -130,6 +130,14 @@ typedef void (*plugin_driver_enum_cb_t)(peer_t* peer, void* arg);
 void plugin_driver_enumerate(plugin_driver_enum_cb_t cb, void* arg);
 
 /**
+ * @brief Append one object per bound BLE device ({"name", "plugin"}) to a cJSON array.
+ *
+ * Safe to call from any task: reads a small table kept by try_claim / release_peer rather
+ * than walking live driver instances.
+ */
+void plugin_driver_list_devices(cJSON* array);
+
+/**
  * @brief Pre-filter: check if any loaded ble_driver plugin can handle a device name.
  *
  * Used at scan time to avoid showing unpairable devices in the list.

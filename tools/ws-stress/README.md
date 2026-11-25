@@ -11,6 +11,8 @@ python3 ws_latency.py <device-ip> 38     #    ...while measuring other clients' 
 python3 ws_flood.py <device-ip> 10       # C: more sessions than slots, dropped abruptly
 python3 ws_rc3.py <device-ip>            # rc.3 API: ping/pong, close, streamReadings false,
                                          #   streamEvents, denials, setMode validation
+python3 ws_rc5.py <device-ip>            # rc.5 API: getState, resetDenials, setLock/lock_changed,
+                                         #   pluginList/pluginEvent, getDevices, config_changed
 ```
 
 Expected on 2.1.0-rc.2 or later: every cycle succeeds, no latency probe fails during the

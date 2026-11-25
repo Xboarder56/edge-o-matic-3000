@@ -8,6 +8,9 @@
     X(EVT_ORGASM_DENIAL);                                                                          \
     X(EVT_ORGASM_PERMIT);                                                                          \
     X(EVT_ORGASM_START);                                                                           \
+    X(EVT_EDGE_START);                                                                             \
+    X(EVT_LOCK_CHANGED);                                                                           \
+    X(EVT_CONFIG_CHANGED);                                                                         \
     X(EVT_TICK);
 
 #endif

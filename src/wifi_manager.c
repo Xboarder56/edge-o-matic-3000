@@ -164,7 +164,11 @@ esp_err_t wifi_manager_connect_to_ap(const char* ssid, const char* key) {
         }
 
         if (Config.websocket_port > 0) {
-            ESP_ERROR_CHECK(http_server_connect());
+            // Keep the device usable (UI, edging, BLE) if the server cannot start, e.g. a
+            // missing HTTPS certificate: aborting here halted the device on the boot screen.
+            if (http_server_connect() != ESP_OK) {
+                ESP_LOGE(TAG, "Web server failed to start; continuing without it.");
+            }
         }
 
         return ESP_OK;

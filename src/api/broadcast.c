@@ -99,6 +99,9 @@ static void _on_device_event(
 
     if (!strcmp(event, EVT_MODE_SET)) {
         cJSON_AddStringToObject(root, "runMode", orgasm_control_get_output_mode_str());
+    } else if (!strcmp(event, EVT_LOCK_CHANGED)) {
+        cJSON_AddBoolToObject(root, "locked", event_arg_int != 0);
+        cJSON_AddStringToObject(root, "reason", event_arg_ptr ? (const char*)event_arg_ptr : "");
     }
 
     websocket_broadcast(payload, WS_BROADCAST_EVENTS);
@@ -109,5 +112,26 @@ void api_broadcast_events_init(void) {
     event_manager_register_handler(EVT_ORGASM_DENIAL, _on_device_event, NULL);
     event_manager_register_handler(EVT_ORGASM_PERMIT, _on_device_event, NULL);
     event_manager_register_handler(EVT_ORGASM_START, _on_device_event, NULL);
+    event_manager_register_handler(EVT_EDGE_START, _on_device_event, NULL);
+    event_manager_register_handler(EVT_LOCK_CHANGED, _on_device_event, NULL);
+    event_manager_register_handler(EVT_CONFIG_CHANGED, _on_device_event, NULL);
     event_manager_register_handler(EVT_MODE_SET, _on_device_event, NULL);
+}
+
+/**
+ * device_connect / device_disconnect go straight to WebSocket clients, not through the event
+ * manager: they fire on the Bluetooth host task, where running plugin handlers could deadlock.
+ */
+void api_broadcast_device_event(const char* name, const char* plugin, bool connected) {
+    cJSON* payload = cJSON_CreateObject();
+    if (payload == NULL) return;
+    cJSON* root = cJSON_AddObjectToObject(payload, "event");
+    cJSON_AddStringToObject(root, "name", connected ? "device_connect" : "device_disconnect");
+    cJSON_AddNumberToObject(root, "value", connected ? 1 : 0);
+    cJSON_AddNumberToObject(root, "millis", esp_timer_get_time() / 1000);
+    cJSON_AddStringToObject(root, "device", name ? name : "");
+    cJSON_AddStringToObject(root, "plugin", plugin ? plugin : "");
+
+    websocket_broadcast(payload, WS_BROADCAST_EVENTS);
+    cJSON_Delete(payload);
 }

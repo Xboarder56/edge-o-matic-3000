@@ -70,8 +70,9 @@ static void _set_speed(uint8_t speed) {
     last_speed = speed;
 
     eom_hal_set_motor_speed(speed);
+    // update_flag makes the stats page redraw. Don't force a full UI redraw here: in automatic
+    // mode the speed changes nearly every tick, and that would repaint menus at the tick rate.
     arousal_state.update_flag = ocTRUE;
-    ui_redraw_all();
     event_manager_dispatch(EVT_SPEED_CHANGE, NULL, speed);
 }
 
@@ -205,7 +206,7 @@ static void orgasm_control_updateMotorSpeed() {
                 controller->stop();
                 output_state.motor_speed = 0;
                 arousal_state.update_flag = ocTRUE;
-                event_manager_dispatch(EVT_ORGASM_DENIAL, NULL, 0);
+                event_manager_dispatch(EVT_ORGASM_DENIAL, NULL, arousal_state.arousal);
                 ESP_LOGD(
                     TAG, "RUNNING -> COOLDOWN (jitter: %lu ms)", output_state.cooldown_jitter_ms
                 );
@@ -213,7 +214,7 @@ static void orgasm_control_updateMotorSpeed() {
                 // Permit: stay running at the returned speed
                 output_state.motor_speed = edge_response;
                 arousal_state.update_flag = ocTRUE;
-                event_manager_dispatch(EVT_ORGASM_PERMIT, NULL, 0);
+                event_manager_dispatch(EVT_ORGASM_PERMIT, NULL, arousal_state.arousal);
             }
         }
         break;

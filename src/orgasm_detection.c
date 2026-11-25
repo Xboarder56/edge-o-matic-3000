@@ -230,6 +230,9 @@ void orgasm_detection_tick(uint16_t pressure, uint16_t arousal) {
             det.last_interval_ms = 0;
             memset(det.peaks, 0, sizeof(det.peaks));
             ESP_LOGD(TAG, "IDLE -> SUSTAINED (pressure=%d, baseline=%.0f)", pressure, det.baseline);
+            if (Config.od_detection_armed) {
+                event_manager_dispatch(EVT_EDGE_START, NULL, arousal);
+            }
         }
         break;
     }
@@ -273,7 +276,7 @@ void orgasm_detection_tick(uint16_t pressure, uint16_t arousal) {
                         TAG, "SUSTAINED -> DETECTED (sustained fallback, %lu ms)", sustained_ms
                     );
                     if (Config.od_detection_armed) {
-                        event_manager_dispatch(EVT_ORGASM_START, NULL, 0);
+                        event_manager_dispatch(EVT_ORGASM_START, NULL, arousal);
                     }
                 }
             }
@@ -333,7 +336,7 @@ void orgasm_detection_tick(uint16_t pressure, uint16_t arousal) {
                         det.last_interval_ms
                     );
                     if (Config.od_detection_armed) {
-                        event_manager_dispatch(EVT_ORGASM_START, NULL, 0);
+                        event_manager_dispatch(EVT_ORGASM_START, NULL, arousal);
                     }
                 }
             }

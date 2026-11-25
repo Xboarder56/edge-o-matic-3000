@@ -2,6 +2,91 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
+## 2.1.0-rc.5 (2026-11-24): boot fix and remote control
+
+**Boot fix and remote control release.** Fixes devices freezing on the boot screen, gets
+Bluetooth running again with several large plugins loaded, and adds WebSocket commands for
+remote control and automation: a state snapshot, denial reset, button lock, plugin triggers and
+a list of connected Bluetooth devices, plus new events.
+
+Includes everything from 2.1.0-rc.2 through rc.4. Existing clients and plugins work unchanged;
+the only visible change for them is that the arousal events now carry the arousal level instead
+of 0. Release assets: the app image is now named after the release
+(`eom3k-firmware-2.1.0-rc.5.bin`); online updates find it automatically.
+
+### New Features
+
+- **`getState`**: one snapshot of mode, motor, arousal, threshold, denials, button lock, plugin
+  control, orgasm detection, radios and free memory, so a client can resync right after
+  connecting.
+- **`resetDenials`**: resets the denial counter, like "Reset Denial Count" on the device.
+- **`setLock`**: locks or unlocks the device buttons and encoder remotely, with a reason. Holding
+  BACK+OK for 5 seconds always unlocks.
+- **`pluginList` and `pluginEvent`**: list loaded plugins and trigger a feature plugin's
+  `remote_*` handler (for example `remote_release`). A plugin decides what is remotely callable by
+  naming handlers `remote_*`.
+- **`getDevices`**: Bluetooth devices currently connected through a driver plugin.
+- **New events** (plugins and `streamEvents`): `lock_changed` (also for the escape hatch),
+  `config_changed` (after settings are saved), `edge_start` (orgasm detection starts tracking a
+  sustained clench, while armed; registered before but never fired). `streamEvents` also gets
+  `device_connect` / `device_disconnect` with the device and plugin name.
+
+### Bugs Fixed
+
+- **Device froze on the boot screen after connecting to Wi-Fi.** Starting Wi-Fi before the HTTP
+  server (so plugins load first) made the server's own IP-event handlers register for the first
+  time, so the web server was started twice; the second start failed to bind and
+  `ESP_ERROR_CHECK` halted the CPU. The duplicate handlers are removed, starting the server is
+  idempotent, and a server that fails to start (for example a missing HTTPS certificate) is now
+  logged instead of halting the device.
+- **Device froze on the boot screen when plugins left too little memory for Bluetooth.** NimBLE
+  asserts if it cannot allocate its buffers. With three plugins (Lovense, Coyote and a ~30 KB
+  feature plugin) only 16 KB was left. Bluetooth now has room again (see Technical Stuff), and if
+  less than 50 KB is free when it would start, it is skipped with a "Bluetooth off: low memory"
+  message instead of freezing.
+- **The HTTPS private key was printed to the serial log** when HTTPS was enabled. Only its size is
+  logged now.
+- **Menus redrew at the tick rate in automatic mode.** Speed changes no longer force a full UI
+  redraw; the stats page still updates on every change, and Stop/manual commands still redraw.
+
+### Changes
+
+- `orgasm_denial`, `orgasm_permit` and `orgasm_start` carry the arousal level as their value
+  (plugins and `streamEvents`), instead of 0.
+- Driver plugins also receive `orgasm_denial`, `orgasm_permit`, `orgasm_start` and `edge_start`.
+
+### Technical Stuff
+
+- Boot order: plugins load, then `wifi_manager_init()` (creates the default event loop), then
+  `http_server_init()`. Wi-Fi now initializes after plugins, so plugin parsing gets the larger
+  heap, as the rc.4 notes intended.
+- `esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT)` at boot: the controller runs BLE only,
+  so the Classic Bluetooth memory (15 KB) goes back to the heap before plugins load.
+- Wi-Fi TX buffers are dynamic (`CONFIG_ESP32_WIFI_DYNAMIC_TX_BUFFER`, 32, the ESP-IDF default)
+  instead of 16 static buffers, which kept ~26 KB reserved at all times.
+- Heap on an EOM3K with three plugins: 101 KB free before Wi-Fi, 58 KB before Bluetooth, about
+  20 KB after (Bluetooth takes ~38 KB). Boot logs heap before Wi-Fi and before/after Bluetooth.
+  Plain plugin HTTP fits; HTTPS (52 KB) does not with this plugin set.
+- `device_connect` / `device_disconnect` are sent straight to WebSocket clients rather than through
+  the event manager: they fire on the Bluetooth host task, where plugin handlers could deadlock.
+  Bound devices are kept in a small mutex-protected table for `getDevices`.
+- `pluginEvent` handlers run on the web server task, like plugin events triggered by `setMode`.
+- The deprecated `CONFIG_TCP_SND_BUF_DEFAULT` / `CONFIG_TCP_WND_DEFAULT` aliases in
+  `sdkconfig.defaults` now match the rc.4 values (5760).
+- `mt-actions`: `gen_plugin_api.py` also scans event registrations in the actions directory, so
+  `plugin-api.json` lists the Bluetooth and HTTP events (16 events). Runtime unchanged.
+- New `src/api/state.c`; test script `tools/ws-stress/ws_rc5.py`.
+
+### Verification (on hardware, EOM3K)
+
+| Test | Result |
+| --- | --- |
+| Boot with Lovense, Coyote and smart-lock plugins, Wi-Fi and Bluetooth on | Boots; Bluetooth starts; ~20 KB free afterwards (rc.4 + boot-order change froze on the boot screen) |
+| Boot without an SD card | Boots |
+| `ws_rc5.py`: getState, nonce, resetDenials, setLock + lock_changed, pluginList, pluginEvent errors, getDevices, config_changed | 15/15 pass |
+| rc.2/rc.3 network tests (API, 30 connect cycles, stalled reader + latency, 10-session flood) | All pass, worst round trip 0.74 s, no resets |
+| Connecting a Bluetooth device, online update rc.4 → rc.5 | Not re-tested in this release |
+
 ## 2.1.0-rc.4 (2026-11-24): plugin HTTP and Bluetooth
 
 **Plugin HTTP and Bluetooth release.** Plugins can now make HTTP and HTTPS requests (for example

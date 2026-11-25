@@ -108,7 +108,7 @@ static httpd_handle_t start_webserver(void) {
             free(ssl_config.cacert_pem);
             return NULL;
         } else {
-            ESP_LOGI(TAG, "%s", ssl_config.prvtkey_pem);
+            ESP_LOGI(TAG, "SSL private key loaded (%d bytes).", (int)ssl_config.prvtkey_len);
         }
 
         ESP_LOGI(TAG, "SSL Certificates provisioned. (%d bytes free)", esp_get_free_heap_size());
@@ -136,36 +136,18 @@ static void stop_webserver(httpd_handle_t server) {
     httpd_stop(server);
 }
 
-static void
-connect_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    httpd_handle_t* server = (httpd_handle_t*)arg;
-    if (*server == NULL) {
-        ESP_LOGI(TAG, "Starting webserver...");
-        *server = start_webserver();
-    }
-}
-
-static void
-disconnect_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
-    httpd_handle_t* server = (httpd_handle_t*)arg;
-    if (*server) {
-        ESP_LOGI(TAG, "Stopping webserver...");
-        stop_webserver(*server);
-        *server = NULL;
-    }
-}
-
+/**
+ * Register the API. The server itself is started and stopped by wifi_manager
+ * (http_server_connect / http_server_disconnect), so no IP/Wi-Fi event handlers are registered
+ * here: doing both started the server twice, and the second start failed to bind and aborted.
+ */
 esp_err_t http_server_init(void) {
-    esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &connect_handler, &_server);
-    esp_event_handler_register(
-        WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, &disconnect_handler, &_server
-    );
-
     api_register_all();
     return ESP_OK;
 }
 
 esp_err_t http_server_connect(void) {
+    if (_server != NULL) return ESP_OK;
     _server = start_webserver();
     if (_server == NULL) {
         return ESP_FAIL;
@@ -174,6 +156,7 @@ esp_err_t http_server_connect(void) {
 }
 
 void http_server_disconnect(void) {
+    if (_server == NULL) return;
     stop_webserver(_server);
     _server = NULL;
 }

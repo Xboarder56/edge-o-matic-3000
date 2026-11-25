@@ -52,8 +52,11 @@ Measured on an EOM3K:
 | Plain HTTP | ~15 KB |
 | HTTPS to an internet host (GitHub Pages, verified) | more than 42 KB |
 
-The device has roughly 30-57 KB free, depending on the loaded plugins (each costs roughly 2-3
-times its `plugin.json` size while loaded; the Lovense driver alone leaves ~57 KB). A request is
+The device has roughly 20-57 KB free, depending on the loaded plugins (each costs roughly 2-3
+times its `plugin.json` size while loaded; the Lovense driver alone leaves ~57 KB). On 2.1.0-rc.5
+with three plugins (Lovense, Coyote, a ~30 KB feature plugin), Wi-Fi and Bluetooth on, about 20 KB
+stays free: plain HTTP fits, HTTPS does not. If plugins leave less than 50 KB when Bluetooth
+starts, the device skips Bluetooth and shows "Bluetooth off: low memory". A request is
 refused with `-3` unless at least 12 KB (HTTP) or 52 KB plus a 20 KB contiguous block (HTTPS) is
 free. In practice, **HTTPS works only with one small plugin loaded; use plain HTTP for devices on
 your own network.** HTTPS requests also wait while a Bluetooth device is being connected.
@@ -132,6 +135,37 @@ Details:
 
 `data` arguments accept a string or a byte array (up to 128 bytes); `out` arguments are written
 in place, up to the array's declared capacity.
+
+## Additions in 2.1.0-rc.5
+
+### Remote events (`remote_*` handlers)
+
+A WebSocket client can trigger a feature plugin's handler with
+`{"pluginEvent": {"plugin": "<plugin name>", "event": "release", "value": 0}}`, which runs the
+plugin's `remote_release` handler with `value` as its argument. Only handlers whose name starts
+with `remote_` can be triggered this way, so a plugin decides what is remotely callable by naming
+handlers. Event names after the prefix: lowercase letters, digits and `_`, up to 24 characters.
+`ble_driver` plugins cannot be triggered (their events go to per-device instances).
+
+```json
+"remote_release": {"args": ["value"], "actions": [
+  {"http_request": ["POST", "http://192.168.1.42/api/v1/timer/release", "{}"], "to": "$rid"}
+]}
+```
+
+The handler runs on the web server task: keep it short (`http_request` returns at once).
+
+### New and changed events
+
+| Event | Payload | Notes |
+| --- | --- | --- |
+| `edge_start` | arousal level | Orgasm detection starts tracking a sustained clench. Only while detection is armed. Registered before rc.5 but never fired. |
+| `orgasm_denial`, `orgasm_permit`, `orgasm_start` | arousal level | Was always 0 before rc.5 |
+| `lock_changed` | 1 locked, 0 unlocked | From a plugin, a WebSocket `setLock` or the BACK+OK escape hatch |
+| `config_changed` | 0 | After the device settings are saved |
+
+`ble_driver` plugins now also receive `orgasm_denial`, `orgasm_permit`, `orgasm_start` and
+`edge_start`, as well as `speed_change` and `arousal_change`.
 
 ## Testing
 
