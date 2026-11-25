@@ -66,7 +66,9 @@ of 0. Release assets: the app image is now named after the release
   instead of 16 static buffers, which kept ~26 KB reserved at all times.
 - Heap on an EOM3K with three plugins: 101 KB free before Wi-Fi, 58 KB before Bluetooth, about
   20 KB after (Bluetooth takes ~38 KB). Boot logs heap before Wi-Fi and before/after Bluetooth.
-  Plain plugin HTTP fits; HTTPS (52 KB) does not with this plugin set.
+  Plain plugin HTTP fits; HTTPS (52 KB) does not with this plugin set, and neither does the
+  online update (HTTPS): remove large plugins before updating over the internet, or update from
+  the SD card or over USB.
 - `device_connect` / `device_disconnect` are sent straight to WebSocket clients rather than through
   the event manager: they fire on the Bluetooth host task, where plugin handlers could deadlock.
   Bound devices are kept in a small mutex-protected table for `getDevices`.
@@ -85,7 +87,8 @@ of 0. Release assets: the app image is now named after the release
 | Boot without an SD card | Boots |
 | `ws_rc5.py`: getState, nonce, resetDenials, setLock + lock_changed, pluginList, pluginEvent errors, getDevices, config_changed | 15/15 pass |
 | rc.2/rc.3 network tests (API, 30 connect cycles, stalled reader + latency, 10-session flood) | All pass, worst round trip 0.74 s, no resets |
-| Connecting a Bluetooth device, online update rc.4 → rc.5 | Not re-tested in this release |
+| Online update rc.4 → rc.5 from the device (GitHub feed, renamed image) | Works with only the Lovense plugin loaded (83 KB free). With all three plugins (~20 KB free) the update check fails (`mbedtls_ssl_setup` -0x7F00, out of memory) and the menu hides "Update via Internet" |
+| Connecting a Bluetooth device | Not re-tested in this release |
 
 ## 2.1.0-rc.4 (2026-11-24): plugin HTTP and Bluetooth
 
