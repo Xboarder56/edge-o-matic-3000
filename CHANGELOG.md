@@ -2,7 +2,19 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
-## Unreleased (planned for 2.1.0-rc.6)
+## 2.1.0-rc.6 (2026-11-27): update safety and recordings
+
+**Update safety and recordings release.** Firmware updates are now safer: a bad update rolls back
+to the previous version on its own, failed SD installs leave the device working and allow a
+retry, and the motor and wired accessories stay stopped while an update runs. SD recordings get
+correct CSV columns, regular saves to the card, and a new column marking edges, denials,
+orgasms and mode changes.
+
+Includes everything from 2.1.0-rc.2 through rc.5. Clients, plugins and settings work unchanged.
+
+**After updating:** leave the device on for 30 seconds after its first boot on rc.6. That
+confirms the update. Turning it off sooner makes it boot the previous version again, and you can
+simply install the update again.
 
 ### Firmware updates
 
@@ -19,7 +31,7 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
   out until you leave the menu, including after a failed install. Bluetooth accessories have no
   common stop acknowledgement, so the menu asks you to stop and disconnect them first.
 
-### Recording fixes
+### Recordings
 
 - SD recordings now include raw pressure immediately after `millis`, so all 12 CSV values
   match their column headings. Classic serial output keeps its existing format.
@@ -39,6 +51,19 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
   `sdkconfig.defaults` or in the effective build config, or if any source calls runtime
   radio power, country or protocol APIs. The values are Maus-Tec's (`CONFIG_ESP_PHY_MAX_TX_POWER=20`,
   reduced TX power on, PHY calibration as shipped).
+- `data_logger_init()` now runs at boot; it registers the recording event markers.
+
+### Verification
+
+- Firmware builds with no new warnings; the radio settings lock passes.
+- Host tests of the SD recording writer: every sample written with CSV rows matching the
+  headings, the 15-second write and sync cadence, stop and restart, recovery from allocation and
+  sync failures, unchanged classic serial output, and event markers on the right rows (markers
+  from before a recording are dropped; re-selecting the same mode adds none).
+- Host test of the update gate: running work drains before update mode starts, new work is
+  refused during it, and a timeout returns the device to normal operation.
+- Not yet verified on hardware: the update rollback, SD install failure and retry, and the
+  update-menu motor and accessory stop.
 
 ## 2.1.0-rc.5 (2026-11-24): boot fix and remote control
 
