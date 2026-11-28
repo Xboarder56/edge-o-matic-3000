@@ -4,6 +4,12 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
 
 ## Unreleased (planned for 2.1.0-rc.6)
 
+### Firmware updates
+
+- A newly installed image stays eligible for rollback until the main loop has run responsively
+  for 30 seconds. Confirmation works offline and without an SD card. A reset before confirmation
+  lets a rollback-enabled bootloader return to the previous valid image.
+
 ### Recording fixes
 
 - SD recordings now include raw pressure immediately after `millis`, so all 12 CSV values

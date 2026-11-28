@@ -182,28 +182,16 @@ static void plugin_task(void* args) {
     }
 }
 
-static void main_task(void* args) {
-    // console_ready();
-    ui_open_page(&PAGE_EDGING_STATS, NULL);
-    ui_reset_idle_timer();
-    orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
-
-    for (;;) {
-        loop_task(NULL);
-        hal_task(NULL);
-        ui_task(NULL);
-        orgasm_task(NULL);
-    }
-}
-
-esp_err_t run_boot_diagnostic(void) {
-    esp_err_t err = ESP_ERR_INVALID_ARG;
-    esp_ota_img_states_t ota_state = ESP_OTA_IMG_UNDEFINED;
-
+static bool boot_pending_verification(void) {
     const esp_partition_t* configured = esp_ota_get_boot_partition();
     const esp_partition_t* running = esp_ota_get_running_partition();
 
-    if (configured != running) {
+    if (!running) {
+        ESP_LOGE(TAG, "Could not identify running firmware");
+        return false;
+    }
+
+    if (configured && configured != running) {
         ESP_LOGW(
             TAG,
             "Configured OTA boot partition at offset 0x%08" PRIx32
@@ -226,20 +214,48 @@ esp_err_t run_boot_diagnostic(void) {
         running->address
     );
 
-    if (esp_ota_get_state_partition(running, &ota_state) == ESP_OK) {
-        if (ota_state == ESP_OTA_IMG_PENDING_VERIFY) {
-            // if (diagnostic_is_ok) {
-            ESP_LOGI(TAG, "Diagnostics completed successfully! Continuing execution ...");
-            esp_ota_mark_app_valid_cancel_rollback();
-            err = ESP_OK;
-            // } else {
-            // ESP_LOGE(TAG, "Diagnostics failed! Start rollback to the previous version ...");
-            // esp_ota_mark_app_invalid_rollback_and_reboot();
-            // }
+    esp_ota_img_states_t state;
+    esp_err_t err = esp_ota_get_state_partition(running, &state);
+    // Factory and directly flashed images may have no OTA state.
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGW(TAG, "Cannot read OTA image state: %s", esp_err_to_name(err));
+    }
+    return err == ESP_OK && state == ESP_OTA_IMG_PENDING_VERIFY;
+}
+
+static void main_task(void* args) {
+    ui_open_page(&PAGE_EDGING_STATS, NULL);
+    ui_reset_idle_timer();
+    orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
+
+    bool pending = boot_pending_verification();
+    TickType_t previous_loop = xTaskGetTickCount();
+    TickType_t healthy_since = previous_loop;
+
+    for (;;) {
+        loop_task(NULL);
+        hal_task(NULL);
+        ui_task(NULL);
+        orgasm_task(NULL);
+
+        if (pending) {
+            TickType_t now = xTaskGetTickCount();
+            // Time blocked inside a menu or plugin does not demonstrate a responsive main loop.
+            if (now - previous_loop > pdMS_TO_TICKS(1000)) healthy_since = now;
+            previous_loop = now;
+            if (now - healthy_since >= pdMS_TO_TICKS(30000)) {
+                esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
+                if (err == ESP_OK) {
+                    pending = false;
+                    ESP_LOGI(TAG, "Updated firmware confirmed after 30 seconds of main-loop activity");
+                    ui_toast("%s\n%s", _("Update complete."), EOM_VERSION);
+                } else {
+                    ESP_LOGE(TAG, "Unable to confirm updated firmware: %s", esp_err_to_name(err));
+                    healthy_since = now;
+                }
+            }
         }
     }
-
-    return err;
 }
 
 void app_main() {
@@ -248,8 +264,6 @@ void app_main() {
 
     // Parse version string first so all subsystems can use EOM_PARSED_VERSION.
     version_init();
-
-    esp_err_t dxerr = run_boot_diagnostic();
 
     // The controller runs BLE only (NimBLE), so the memory reserved for Classic Bluetooth is never
     // used. Give it to the heap before plugins load. Must happen before the controller starts.
@@ -282,13 +296,6 @@ void app_main() {
     eom_hal_set_sensor_sensitivity(Config.sensor_sensitivity);
     eom_hal_set_encoder_brightness(Config.led_brightness);
     eom_hal_set_encoder_rgb(255, 0, 0);
-
-    // Show post-update diagnostics if applicable
-    if (dxerr != ESP_ERR_INVALID_ARG) {
-        if (dxerr == ESP_OK) {
-            ui_toast("%s\n%s", _("Update complete."), EOM_VERSION);
-        }
-    }
 
     // Show splash screen
     ui_open_page(&SPLASH_PAGE, NULL);
