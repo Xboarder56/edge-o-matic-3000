@@ -62,8 +62,22 @@ simply install the update again.
   from before a recording are dropped; re-selecting the same mode adds none).
 - Host test of the update gate: running work drains before update mode starts, new work is
   refused during it, and a timeout returns the device to normal operation.
-- Not yet verified on hardware: the update rollback, SD install failure and retry, and the
-  update-menu motor and accessory stop.
+- On hardware (EOM3K, Lovense and smart-lock plugins loaded): online update from 2.1.0-rc.5
+  through the release feed downloaded and verified the 1.38 MB image; after the restart rc.6
+  logged "Updated firmware confirmed after 30 seconds of main-loop activity" and stayed on rc.6
+  across a further reset.
+- Not yet verified on hardware: rollback after a reset during the first 30 seconds, SD install
+  failure and retry, the update-menu motor and accessory stop, and recording event markers.
+
+### Known issues
+
+- With large plugins loaded, online updates need Bluetooth turned off first (Networking, then
+  Enable Bluetooth; it takes effect immediately, and you can turn it back on after the update).
+  With Bluetooth on, about 40 KB is free and the HTTPS certificate check runs out of
+  memory (`PK verify failed`), which shows as no update found. This also applies when updating
+  from rc.5 to rc.6. Updating from the SD card is not affected.
+- Updating from rc.5: rc.5 stays on "Update successful" after installing and does not restart.
+  Restart the device yourself; rc.6 then starts and confirms itself after 30 seconds.
 
 ## 2.1.0-rc.5 (2026-11-24): boot fix and remote control
 
