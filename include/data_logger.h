@@ -23,6 +23,8 @@ void data_logger_tick(unsigned long millis_offset);
 
 void data_logger_start_recording(void);
 void data_logger_stop_recording(void);
+/** Stop and report whether the final batch reached storage. */
+bool data_logger_finish_recording(void);
 bool data_logger_is_recording(void);
 
 #ifdef __cplusplus

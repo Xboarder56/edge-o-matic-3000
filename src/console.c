@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "linenoise/linenoise.h"
 #include "tscode.h"
+#include "update_mode.h"
 #include "version.h"
 #include <ctype.h>
 #include <stdio.h>
@@ -146,6 +147,12 @@ static void console_task(void* args) {
             continue;
         }
 
+        if (!update_mode_try_work()) {
+            printf("Firmware update in progress.\n");
+            linenoiseFree(line);
+            continue;
+        }
+
         if (strcasecmp(line, "tscode") == 0) {
             _tscode_mode = true;
             reinitialize_console();
@@ -169,6 +176,7 @@ static void console_task(void* args) {
             }
         }
 
+        update_mode_end_work();
         linenoiseFree(line);
     }
 

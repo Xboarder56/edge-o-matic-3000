@@ -1,3 +1,5 @@
+#include "accessory_driver.h"
+#include "drivers/sc16is740.h"
 #include "eom-hal.h"
 #include "esp_log.h"
 #include "maus_bus.h"
@@ -6,6 +8,7 @@
 #include <string.h>
 
 static const char* TAG = "accessory_driver";
+static uint8_t last_speed;
 
 static maus_bus_err_t
 _accessory_read(uint8_t address, uint8_t subaddress, uint8_t* data, size_t len) {
@@ -62,13 +65,35 @@ static void _evt_speed_change(
     int speed,
     EVENT_HANDLER_ARG_TYPE handler_arg
 ) {
-    static uint8_t last_value = 0;
-    if (speed == last_value) return;
-    last_value = speed;
+    if (speed == last_speed) return;
+    last_speed = speed;
 
     ESP_LOGD(TAG, "_evt_speed_change(%d);", speed);
 
-    maus_bus_enumerate_devices(_device_speed_cb, &last_value);
+    maus_bus_enumerate_devices(_device_speed_cb, &last_speed);
+}
+
+static void _halt_device(
+    maus_bus_driver_t* driver, maus_bus_device_t* device, maus_bus_address_t address, void* arg
+) {
+    if (!device->features.tscode) return;
+    // S00 is immediate halt. The bundled serializer emits T00 for this one opcode.
+    uint8_t halt[] = "S00\n";
+    // The public HAL writes return void. Probe the actual UART transport after submission
+    // to catch an unreachable adapter; there is no protocol-level stop acknowledgement.
+    uint8_t transport_addr = device->features.serial ? SC16_ADDRESS : 0x69;
+    if (!driver || !driver->uart || !driver->uart->transmit ||
+        driver->uart->transmit(halt, sizeof(halt) - 1) != MAUS_BUS_OK ||
+        eom_hal_accessory_master_probe(transport_addr) != EOM_HAL_OK) {
+        ESP_LOGE(TAG, "Could not send halt to %s", device->product_name);
+        *(bool*)arg = false;
+    }
+}
+
+bool accessory_driver_halt(void) {
+    bool ok = true;
+    last_speed = 0;
+    return maus_bus_enumerate_devices(_halt_device, &ok) == MAUS_BUS_OK && ok;
 }
 
 static void _evt_arousal_change(

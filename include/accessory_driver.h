@@ -5,9 +5,11 @@
 extern "C" {
 #endif
 
+#include <stdbool.h>
 #include <stdint.h>
 
 void accessory_driver_init(void);
+bool accessory_driver_halt(void);
 
 #ifdef __cplusplus
 }

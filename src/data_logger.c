@@ -89,7 +89,7 @@ static bool save_recording(void) {
     return ok && fflush(file) == 0 && fsync(fileno(file)) == 0;
 }
 
-static void close_recording(bool ok) {
+static bool close_recording(bool ok) {
     if (fclose(logger_state.logfile) != 0) ok = false;
     logger_state.logfile = NULL;
     ui_set_icon(UI_ICON_RECORD, -1);
@@ -99,6 +99,7 @@ static void close_recording(bool ok) {
         ESP_LOGE(TAG, "Failed to save complete recording");
         ui_toast("%s", _("Recording save error!"));
     }
+    return ok;
 }
 
 void data_logger_init(void) {
@@ -158,12 +159,15 @@ void data_logger_start_recording(void) {
     free(logfile_name);
 }
 
+bool data_logger_finish_recording(void) {
+    if (!logger_state.logfile) return true;
+    ui_toast_blocking("%s", _("Stopping..."));
+    ESP_LOGI(TAG, "Closing logfile.");
+    return close_recording(save_recording());
+}
+
 void data_logger_stop_recording(void) {
-    if (logger_state.logfile != NULL) {
-        ui_toast_blocking("%s", _("Stopping..."));
-        ESP_LOGI(TAG, "Closing logfile.");
-        close_recording(save_recording());
-    }
+    data_logger_finish_recording();
 }
 
 bool data_logger_is_recording(void) {

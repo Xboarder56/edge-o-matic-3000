@@ -1,4 +1,8 @@
+#include "accessory_driver.h"
+#include "bluetooth_manager.h"
 #include "data_logger.h"
+#include "orgasm_control.h"
+#include "update_mode.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
@@ -34,7 +38,7 @@ static void on_update_progress(um_progress_event_t evt, int current, int total, 
 }
 
 static void on_install(const ui_menu_t* m, const ui_menu_item_t* item, UI_MENU_ARG_TYPE arg) {
-    data_logger_stop_recording();
+    if (!update_mode_active()) return;
     ui_toast_blocking("%s", _("Preparing..."));
     esp_err_t err;
     if (item->arg) {
@@ -43,7 +47,7 @@ static void on_install(const ui_menu_t* m, const ui_menu_item_t* item, UI_MENU_A
         err = update_manager_update_from_web(on_update_progress, NULL);
     }
     if (err != ESP_OK) {
-        ui_toast(_("Failed: %s"), esp_err_to_name(err));
+        ui_toast(_("Failed: %s\nRetry or BACK to resume."), esp_err_to_name(err));
         return;
     }
 
@@ -70,7 +74,27 @@ static void on_local_update_found(const um_update_info_t* info, void* arg) {
     item->freer = free;
 }
 
-static void on_open(const ui_menu_t* m, UI_MENU_ARG_TYPE arg) {
+static void prepare_update(const ui_menu_t* m, const ui_menu_item_t* item, UI_MENU_ARG_TYPE arg) {
+    // Some BLE drivers run independent patterns. There is no shared stop/ack command.
+    // Pairing starts from the main UI, so no new connection can start inside this menu.
+    if (bluetooth_manager_has_connections()) {
+        ui_toast("%s", _("Stop and disconnect Bluetooth accessories first."));
+        return;
+    }
+    if (!update_mode_enter()) {
+        ui_toast("%s", _("Device busy. Try again."));
+        return;
+    }
+
+    orgasm_control_set_motor_speed(0);
+    orgasm_control_set_output_mode(OC_MANUAL_CONTROL);
+    if (!accessory_driver_halt()) {
+        ui_toast("%s", _("Accessory stop failed. Retry or BACK to resume."));
+        return;
+    }
+    if (!data_logger_finish_recording()) return;
+    ui_menu_clear(m);
+
     um_update_status_t online_status = UM_UPDATE_NOT_CHECKED;
     um_update_status_t local_status = UM_UPDATE_NOT_CHECKED;
 
@@ -85,11 +109,18 @@ static void on_open(const ui_menu_t* m, UI_MENU_ARG_TYPE arg) {
 
     if (online_status != UM_UPDATE_AVAILABLE && local_status != UM_UPDATE_AVAILABLE) {
         ui_toast("%s", _("No updates found."));
-        ui_close_menu();
         return;
     }
 
     ui_toast_clear();
 }
 
-DYNAMIC_MENU(UPDATE_MENU, "Update", on_open);
+static void on_open(const ui_menu_t* m, UI_MENU_ARG_TYPE arg) {
+    ui_menu_add_item(m, _("Stop & check updates"), prepare_update, NULL);
+}
+
+static void on_close(const ui_menu_t* m, UI_MENU_ARG_TYPE arg) {
+    update_mode_leave();
+}
+
+DYNAMIC_MENU_BASE(UPDATE_MENU, "Update", on_open, .on_close = on_close);

@@ -16,6 +16,23 @@ static const char* TAG = "bluetooth_manager";
 static bluetooth_manager_scan_callback_t _scan_callback;
 static void* _scan_arg;
 static SemaphoreHandle_t _ble_connect_sem;
+// Includes a connection from submission until failure or completion of disconnect cleanup.
+// A peer is counted even when no plugin has claimed it.
+static portMUX_TYPE connection_lock = portMUX_INITIALIZER_UNLOCKED;
+static unsigned connections;
+
+static void connection_finished(void) {
+    portENTER_CRITICAL(&connection_lock);
+    if (connections > 0) --connections;
+    portEXIT_CRITICAL(&connection_lock);
+}
+
+bool bluetooth_manager_has_connections(void) {
+    portENTER_CRITICAL(&connection_lock);
+    bool active = connections != 0;
+    portEXIT_CRITICAL(&connection_lock);
+    return active;
+}
 
 static int blecent_gap_event(struct ble_gap_event* event, void* arg);
 
@@ -127,8 +144,12 @@ int bluetooth_manager_connect(peer_t* peer) {
         return rc;
     }
 
+    portENTER_CRITICAL(&connection_lock);
+    ++connections;
+    portEXIT_CRITICAL(&connection_lock);
     rc = ble_gap_connect(own_addr_type, &peer->addr, 30000, NULL, blecent_gap_event, (void*)peer);
     if (rc != 0) {
+        connection_finished();
         ESP_LOGE(
             TAG,
             "Failed to connect to device; addr_type=%d, address=%s, rc=%d",
@@ -282,6 +303,7 @@ static int blecent_gap_event(struct ble_gap_event* event, void* arg) {
     case BLE_GAP_EVENT_CONNECT:
         /* A new connection was established or a connection attempt failed. */
         if (event->connect.status != 0) {
+            connection_finished();
             /* Connection attempt failed; resume scanning. */
             ESP_LOGI(TAG, "ERROR: Connection failed; status=%d", event->connect.status);
             // blecent_scan();
@@ -325,6 +347,7 @@ static int blecent_gap_event(struct ble_gap_event* event, void* arg) {
                 peer_free_discovery(peer);
                 free(peer);
             }
+            connection_finished();
         }
 
         return 0;

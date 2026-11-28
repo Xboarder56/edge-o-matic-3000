@@ -1,4 +1,5 @@
 #include "system/action_manager.h"
+#include "update_mode.h"
 #include "../../lib/mt-actions/include/mt_actions.h"
 #include "actions/index.h"
 #include "cJSON.h"
@@ -225,7 +226,7 @@ cleanup:
 }
 
 void action_manager_dispatch_event(const char* event, int arg) {
-    if (strncmp("EVT_", event, 4)) return;
+    if (update_mode_active() || strncmp("EVT_", event, 4)) return;
 
     // evt_name will hold the string representation of the event name in snake_case.
     size_t evt_name_len = strlen(event + 4);

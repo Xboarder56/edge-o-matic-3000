@@ -10,8 +10,14 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
   for 30 seconds. Confirmation works offline and without an SD card. A reset before confirmation
   lets a rollback-enabled bootloader return to the previous valid image.
 - SD installs now reject missing, incomplete, and oversized images, release resources on errors,
-  and allow a retry. Successful SD and online installs finish the active recording and restart
-  automatically after a three-second notice.
+  and allow a retry. Successful SD and online installs restart automatically after a
+  three-second notice.
+- The Update menu now opens with "Stop & check updates". Selecting it pauses plugins, console
+  and WebSocket commands, and plugin event delivery. It then stops the motor, switches to
+  manual control, sends an immediate halt (`S00`) to wired TS-code accessories, and saves an
+  active recording before checking for updates. Motor speed and automatic modes stay locked
+  out until you leave the menu, including after a failed install. Bluetooth accessories have no
+  common stop acknowledgement, so the menu asks you to stop and disconnect them first.
 
 ### Recording fixes
 

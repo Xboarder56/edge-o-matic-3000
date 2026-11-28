@@ -17,6 +17,7 @@
 #include "system/http_server.h"
 #include "ui/toast.h"
 #include "ui/ui.h"
+#include "update_mode.h"
 #include "util/i18n.h"
 #include "version.h"
 #include "wasm_runtime.h"
@@ -177,7 +178,10 @@ static void loop_task(void* args) {
 
 static void plugin_task(void* args) {
     while (true) {
-        plugin_driver_tick();
+        if (update_mode_try_work()) {
+            plugin_driver_tick();
+            update_mode_end_work();
+        }
         vTaskDelay(1);
     }
 }
@@ -233,9 +237,18 @@ static void main_task(void* args) {
     TickType_t healthy_since = previous_loop;
 
     for (;;) {
-        loop_task(NULL);
+        if (update_mode_active()) {
+            vTaskDelay(1);
+        } else {
+            loop_task(NULL);
+        }
         hal_task(NULL);
         ui_task(NULL);
+        // A menu callback can enter update mode during ui_task.
+        if (update_mode_active()) {
+            if (pending) healthy_since = previous_loop = xTaskGetTickCount();
+            continue;
+        }
         orgasm_task(NULL);
 
         if (pending) {

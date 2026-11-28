@@ -8,6 +8,7 @@ extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "host/ble_hs.h"
+#include <stdbool.h>
 #include <stdint.h>
 
 struct peer_chr_node {
@@ -46,6 +47,7 @@ typedef void (*bluetooth_manager_scan_callback_t)(peer_t* peer, void* arg);
 
 void bluetooth_manager_init(void);
 void bluetooth_manager_deinit(void);
+bool bluetooth_manager_has_connections(void);
 
 void bluetooth_manager_start_advertising(void);
 void bluetooth_manager_stop_advertising(void);

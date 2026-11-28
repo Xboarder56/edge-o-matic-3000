@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "lwip/sockets.h"
+#include "update_mode.h"
 #include "util/list.h"
 #include <errno.h>
 #include <sys/select.h>
@@ -326,7 +327,12 @@ void websocket_run_command(
     list_foreach(_cmd_list, cmd) {
         ESP_LOGD(TAG, "Checking %s", cmd->command);
         if (!strcmp(command, cmd->command)) {
+            if (!update_mode_try_work()) {
+                _json_add_error(response, "Firmware update in progress");
+                return;
+            }
             command_err_t err = cmd->func(data, response, client);
+            update_mode_end_work();
             if (err != CMD_OK) {
                 cJSON_AddNumberToObject(response, "errno", err);
             }

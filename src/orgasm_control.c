@@ -9,6 +9,7 @@
 #include "system/event_manager.h"
 #include "system/websocket_handler.h"
 #include "ui/ui.h"
+#include "update_mode.h"
 #include "util/i18n.h"
 #include "util/running_average.h"
 #include <math.h>
@@ -64,8 +65,9 @@ static struct {
  * @brief Simplified method to set speed, which also handles broadcasting the event.
  * @param speed
  */
+static uint8_t last_speed;
+
 static void _set_speed(uint8_t speed) {
-    static uint8_t last_speed = 0;
     if (speed == last_speed) return;
     last_speed = speed;
 
@@ -422,6 +424,10 @@ oc_bool_t orgasm_control_is_plugin_control(void) {
 }
 
 void orgasm_control_set_motor_speed(uint8_t speed) {
+    if (update_mode_active()) {
+        if (speed) return;
+        last_speed = 0;
+    }
     output_state.motor_speed = speed;
     eom_hal_set_motor_speed(speed);
     arousal_state.update_flag = ocTRUE;
@@ -429,10 +435,12 @@ void orgasm_control_set_motor_speed(uint8_t speed) {
 }
 
 void orgasm_control_set_motor_speed_direct(uint8_t speed) {
+    if (speed && update_mode_active()) return;
     output_state.motor_speed = speed;
 }
 
 void orgasm_control_set_output_mode(orgasm_output_mode_t mode) {
+    if (mode != OC_MANUAL_CONTROL && update_mode_active()) return;
     orgasm_output_mode_t old = output_state.output_mode;
     output_state.output_mode = mode;
     output_state.control_motor = mode != OC_MANUAL_CONTROL;
