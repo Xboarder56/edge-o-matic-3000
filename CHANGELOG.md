@@ -2,7 +2,15 @@
 
 Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the git log.
 
-## Unreleased
+## Unreleased (planned for 2.1.0-rc.6)
+
+### Recording fixes
+
+- SD recordings now include raw pressure immediately after `millis`, so all 12 CSV values
+  match their column headings. Classic serial output keeps its existing format.
+- Recordings buffer samples in RAM and write and sync them to the SD card every 15 seconds.
+  Stopping a recording saves the final partial batch immediately. A power loss between saves
+  can lose the current batch.
 
 ### Technical Stuff
 
