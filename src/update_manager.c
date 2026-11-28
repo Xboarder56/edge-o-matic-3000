@@ -168,69 +168,63 @@ esp_err_t _http_event_handler(esp_http_client_event_t* evt) {
 esp_err_t update_manager_update_from_storage(
     const char* path, um_progress_callback_t* progress_cb, void* cb_arg
 ) {
-    ESP_LOGI(TAG, "Updating from local storage: %s", path);
-    const size_t BUFFER_SIZE = 4096;
-
-    esp_err_t err = ESP_OK;
-    esp_ota_handle_t update_handle = 0;
-    const esp_partition_t* update_partition = esp_ota_get_next_update_partition(NULL);
-
-    err = esp_ota_begin(update_partition, OTA_SIZE_UNKNOWN, &update_handle);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_begin result = %d", err);
-        return err;
-    }
-
-    if (progress_cb != NULL) progress_cb(UM_PROG_PREFLIGHT_DONE, 0, 0, cb_arg);
+    if (!path) return ESP_ERR_INVALID_ARG;
+    const esp_partition_t* partition = esp_ota_get_next_update_partition(NULL);
+    if (!partition) return ESP_ERR_NOT_FOUND;
 
     FILE* file = fopen(path, "rb");
-    fseek(file, 0, SEEK_END);
-    size_t data_size = ftell(file);
-    size_t total_read = 0;
-    fseek(file, 0, SEEK_SET);
+    if (!file) return ESP_ERR_NOT_FOUND;
 
-    uint8_t* data = (uint8_t*)malloc(BUFFER_SIZE);
-
-    if (data == NULL) {
-        return ESP_ERR_NO_MEM;
+    esp_err_t err = ESP_FAIL;
+    uint8_t* buffer = NULL;
+    esp_ota_handle_t handle;
+    bool started = false;
+    const size_t chunk_size = 4096;
+    if (fseek(file, 0, SEEK_END) != 0) goto cleanup;
+    long size = ftell(file);
+    if (size <= 0 || (unsigned long)size > partition->size) {
+        err = ESP_ERR_INVALID_SIZE;
+        goto cleanup;
     }
+    if (fseek(file, 0, SEEK_SET) != 0) goto cleanup;
 
-    while (!feof(file)) {
-        size_t size = fread(data, 1, BUFFER_SIZE, file);
-        total_read += size;
-        if (progress_cb != NULL) progress_cb(UM_PROG_PAYLOAD_DATA, total_read, data_size, cb_arg);
-        err = esp_ota_write(update_handle, data, size);
-        if (err != ESP_OK) break;
+    buffer = malloc(chunk_size);
+    if (!buffer) {
+        err = ESP_ERR_NO_MEM;
+        goto cleanup;
     }
+    err = esp_ota_begin(partition, size, &handle);
+    if (err != ESP_OK) goto cleanup;
+    started = true;
+    if (progress_cb) progress_cb(UM_PROG_PREFLIGHT_DONE, 0, 0, cb_arg);
 
-    free(data);
-    if (progress_cb != NULL) progress_cb(UM_PROG_PAYLOAD_DONE, 0, 0, cb_arg);
-
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Ota result = %d", err);
-        return err;
-    }
-
-    err = esp_ota_end(update_handle);
-
-    if (err != ESP_OK) {
-        if (err == ESP_ERR_OTA_VALIDATE_FAILED) {
-            ESP_LOGE(TAG, "Image validation failed, image is corrupted");
+    long written = 0;
+    size_t count;
+    while ((count = fread(buffer, 1, chunk_size, file)) > 0) {
+        if (count > (size_t)(size - written)) {
+            err = ESP_ERR_INVALID_SIZE;
+            break;
         }
-        ESP_LOGE(TAG, "esp_ota_end failed (%s)!", esp_err_to_name(err));
-        return err;
+        err = esp_ota_write(handle, buffer, count);
+        if (err != ESP_OK) break;
+        written += count;
+        if (progress_cb) progress_cb(UM_PROG_PAYLOAD_DATA, written, size, cb_arg);
     }
+    if (err == ESP_OK && (ferror(file) || written != size)) err = ESP_FAIL;
 
-    err = esp_ota_set_boot_partition(update_partition);
-
+cleanup:
+    free(buffer);
+    if (fclose(file) != 0 && err == ESP_OK) err = ESP_FAIL;
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "esp_ota_set_boot_partition failed (%s)!", esp_err_to_name(err));
+        if (started) esp_ota_abort(handle);
         return err;
     }
 
-    ESP_LOGI(TAG, "Update complete.");
-    return ESP_OK;
+    if (progress_cb) progress_cb(UM_PROG_PAYLOAD_DONE, 0, 0, cb_arg);
+    // esp_ota_end consumes the handle, including when validation fails.
+    err = esp_ota_end(handle);
+    if (err != ESP_OK) return err;
+    return esp_ota_set_boot_partition(partition);
 }
 
 esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, void* cb_arg) {
@@ -238,13 +232,9 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
     int size = 0;
     esp_err_t err = ESP_OK;
 
-    char* url = NULL;
-    asiprintf(
-        &url,
-        "%s?current_version=%s",
-        Config.remote_update_url,
-        EOM_VERSION
-    );
+    char* manifest_url = NULL;
+    if (asiprintf(&manifest_url, "%s?current_version=%s", Config.remote_update_url, EOM_VERSION) < 0)
+        return ESP_ERR_NO_MEM;
 
     struct um_progress_cb_data callback_data = {
         .cb = progress_cb,
@@ -254,7 +244,7 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
     };
 
     esp_http_client_config_t data_config = {
-        .url = Config.remote_update_url,
+        .url = manifest_url,
         .event_handler = _http_event_handler,
         .user_data = &callback_data,
         .crt_bundle_attach = esp_crt_bundle_attach,
@@ -262,9 +252,13 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
 
     esp_http_client_handle_t client = esp_http_client_init(&data_config);
 
+    if (!client) {
+        free(manifest_url);
+        return ESP_ERR_NO_MEM;
+    }
     err = esp_http_client_perform(client);
     esp_http_client_cleanup(client); // releases the connection (socket) and client memory
-    free(url);
+    free(manifest_url);
 
     if (err != ESP_OK || buffer == NULL) {
         ESP_LOGE(TAG, "HTTP GET failed: %s", esp_err_to_name(err));
@@ -303,7 +297,7 @@ esp_err_t update_manager_update_from_web(um_progress_callback_t* progress_cb, vo
 
     cJSON* assets = cJSON_GetObjectItem(data, "assets");
     cJSON* cursor = NULL;
-    url = NULL;
+    const char* url = NULL;
 
     cJSON_ArrayForEach(cursor, assets) {
         if (cJSON_HasObjectItem(cursor, "role") && cJSON_HasObjectItem(cursor, "url")) {

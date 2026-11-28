@@ -9,6 +9,9 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
 - A newly installed image stays eligible for rollback until the main loop has run responsively
   for 30 seconds. Confirmation works offline and without an SD card. A reset before confirmation
   lets a rollback-enabled bootloader return to the previous valid image.
+- SD installs now reject missing, incomplete, and oversized images, release resources on errors,
+  and allow a retry. Successful SD and online installs finish the active recording and restart
+  automatically after a three-second notice.
 
 ### Recording fixes
 
