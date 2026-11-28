@@ -26,6 +26,11 @@ Releases of this fork (Xboarder56/edge-o-matic-3000). Upstream history is in the
 - Recordings buffer samples in RAM and write and sync them to the SD card every 15 seconds.
   Stopping a recording saves the final partial batch immediately. A power loss between saves
   can lose the current batch.
+- SD recordings have a new last column, `events`, that marks the sample where something
+  happened: `edge`, `orgasm`, `denial`, `permit`, and mode changes (`mode_manual`,
+  `mode_auto`, `mode_plugin`). The first row names the mode the recording started in. Several
+  events in one sample are separated by `|`, and the column is empty otherwise. Existing columns
+  keep their positions, and classic serial output is unchanged.
 
 ### Technical Stuff
 

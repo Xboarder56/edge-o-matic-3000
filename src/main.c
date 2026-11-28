@@ -13,6 +13,7 @@
 #include "polyfill.h"
 #include "actions/http.h"
 #include "system/action_manager.h"
+#include "data_logger.h"
 #include "system/event_manager.h"
 #include "system/http_server.h"
 #include "ui/toast.h"
@@ -303,6 +304,7 @@ void app_main() {
     // Initialize accessory bus and action system
     accessory_driver_init();
     action_manager_init();
+    data_logger_init();
 
     // Configure hardware from saved settings
     // Red = preboot
